@@ -64,6 +64,7 @@ export default function Home() {
  const [syncState,setSyncState]=useState("Data tersimpan di browser");
  const [expandedSetting,setExpandedSetting]=useState<"cloud"|"install"|null>(null);
  const [installPrompt,setInstallPrompt]=useState<null|{prompt:()=>Promise<void>;userChoice:Promise<{outcome:string}>}>(null);
+ const sidebarNavRef=useRef<HTMLDivElement>(null);
  const dataRef=useRef(data);
  const restoreInput=useRef<HTMLInputElement|null>(null);
  function exportBackup(){
@@ -111,6 +112,15 @@ export default function Home() {
    return ()=>clearTimeout(timer);
  },[data,ready,userId]);
  useEffect(()=>{setSearch("");setSidebar(false);window.scrollTo({top:0,behavior:"smooth"});},[page]);
+ useEffect(()=>{
+  const nav=sidebarNavRef.current;
+  const active=nav?.querySelector<HTMLElement>(".nav-item.selected");
+  if(!nav||!active)return;
+  const container=nav.getBoundingClientRect();
+  const selected=active.getBoundingClientRect();
+  if(selected.top<container.top+8)nav.scrollTop-=container.top-selected.top+8;
+  if(selected.bottom>container.bottom-8)nav.scrollTop+=selected.bottom-container.bottom+8;
+ },[page]);
  useEffect(()=>{if(toast){const t=setTimeout(()=>setToast(""),3800);return()=>clearTimeout(t);}},[toast]);
  useEffect(()=>{
   if(!printOrder)return;
@@ -207,7 +217,7 @@ export default function Home() {
   {sidebar&&<button className="scrim" aria-label="Tutup navigasi" onClick={()=>setSidebar(false)}/>}
   <aside className={"sidebar "+(sidebar?"mobile-open":"")}><div className="brand"><div className="brand-mark"><span className="brand-orbit"/><span>O</span></div><div><strong>OPSPIRY</strong><small>OPERATING SYSTEM</small></div><button className="mobile-close" aria-label="Tutup menu" onClick={()=>setSidebar(false)}><X size={20}/></button></div>
   <div className="sidebar-branch"><div className="branch-avatar"><Building2 size={18}/></div><div><strong>OPSPIRY Workspace</strong><small>{userId?"Cloud pribadi":"Mode demo"}</small></div><ChevronDown size={16}/></div>
-  <div className="sidebar-nav">{navigation.map(group=><div className="nav-group" key={group.group}><div className="nav-caption">{group.group}</div>{group.items.map(item=><button key={item.name} className={"nav-item "+(page===item.name?"selected":"")} onClick={()=>setPage(item.name as Page)}><item.icon size={19} strokeWidth={1.9}/><span>{item.name}</span>{item.name==="Hutang & Piutang"&&receivables+payables>0&&<span className="nav-indicator"/>}</button>)}</div>)}</div>
+  <div className="sidebar-nav" ref={sidebarNavRef}>{navigation.map(group=><div className="nav-group" key={group.group}><div className="nav-caption">{group.group}</div>{group.items.map(item=><button key={item.name} className={"nav-item "+(page===item.name?"selected":"")} onClick={()=>setPage(item.name as Page)}><item.icon size={19} strokeWidth={1.9}/><span>{item.name}</span>{item.name==="Hutang & Piutang"&&receivables+payables>0&&<span className="nav-indicator"/>}</button>)}</div>)}</div>
   <div className="sidebar-bottom"><div className="sidebar-support"><div className="sidebar-support-icon"><ShieldCheck size={20}/></div><strong>Satu sistem, lebih banyak kontrol.</strong><p>Catat, ukur, dan kendalikan bisnis dari satu tempat.</p></div><div className="sidebar-caption">OPSPIRY © 2026 · v0.1</div></div>
   </aside>
   <div className="main-panel">

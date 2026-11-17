@@ -49,3 +49,20 @@
 .settings-short-hint{display:block;padding:13px 0 6px;font-size:12px;color:#626b78;font-weight:600}
 .settings-toggle:focus-visible{outline:3px solid rgba(184,20,35,.25);outline-offset:4px;border-radius:8px}
 @media(max-width:680px){.settings-card-compact{padding:16px 19px}.settings-toggle{min-height:52px}}
+
+/* Keep navigation usable at short laptop/small-screen heights; never let a promo card displace menu items. */
+.sidebar{overflow:hidden}
+.sidebar .brand,.sidebar .sidebar-branch,.sidebar .sidebar-bottom{flex-shrink:0}
+.sidebar-nav{min-height:0;overscroll-behavior:contain;scrollbar-gutter:stable;padding-bottom:14px}
+.sidebar-nav::-webkit-scrollbar{width:5px}
+.sidebar-nav::-webkit-scrollbar-thumb{background:#d6dce5;border-radius:10px}
+@media(max-height:1100px){
+ .sidebar-support{display:none}
+ .sidebar-bottom{padding:8px 14px 14px}
+ .sidebar-caption{margin-top:0}
+}
+@media(max-height:700px){
+ .brand{padding-top:16px;padding-bottom:16px}
+ .sidebar-branch{height:58px;margin-bottom:12px}
+ .sidebar-nav .nav-group{margin-bottom:12px}
+}
