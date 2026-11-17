@@ -37,3 +37,15 @@
 }
 .backup-buttons{display:flex;flex-wrap:wrap;gap:8px}
 @media(max-width:680px){.backup-buttons{width:100%}.backup-buttons .btn{flex:1}}
+
+/* OPSPIRY settings: concise, collapsed by default; controls remain accessible on demand. */
+.settings-card-compact{padding:18px 22px;align-self:start}
+.settings-toggle{width:100%;display:flex;align-items:center;gap:14px;padding:2px 0;background:transparent;border:0;text-align:left;color:var(--text);min-height:56px}
+.settings-toggle .settings-icon{flex-shrink:0}
+.settings-toggle h3{flex:1;line-height:1.5;margin:0}
+.settings-chevron{color:#8892a1;transition:transform .18s ease}
+.settings-chevron.is-open{transform:rotate(180deg)}
+.settings-details{border-top:1px solid #eef0f3;margin-top:14px;padding-top:8px}
+.settings-short-hint{display:block;padding:13px 0 6px;font-size:12px;color:#626b78;font-weight:600}
+.settings-toggle:focus-visible{outline:3px solid rgba(184,20,35,.25);outline-offset:4px;border-radius:8px}
+@media(max-width:680px){.settings-card-compact{padding:16px 19px}.settings-toggle{min-height:52px}}

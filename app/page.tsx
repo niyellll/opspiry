@@ -62,6 +62,7 @@ export default function Home() {
  const [cloudBusy,setCloudBusy]=useState(false);
  const [cloudError,setCloudError]=useState("");
  const [syncState,setSyncState]=useState("Data tersimpan di browser");
+ const [expandedSetting,setExpandedSetting]=useState<"cloud"|"install"|null>(null);
  const [installPrompt,setInstallPrompt]=useState<null|{prompt:()=>Promise<void>;userChoice:Promise<{outcome:string}>}>(null);
  const dataRef=useRef(data);
  const restoreInput=useRef<HTMLInputElement|null>(null);
@@ -259,8 +260,31 @@ export default function Home() {
       </div>
     </>}
     {page==="Pengaturan"&&<>
-      <div className="settings-grid"><section className="surface settings-card"><div className="settings-heading"><div className="settings-icon"><Cloud size={24}/></div><div><h3>Sinkronisasi Data Cloud</h3><p>Aktifkan untuk menyimpan data dengan akun pribadi, bukan hanya di browser ini.</p></div></div><div className="setting-row"><span>Status Database</span>{cloudConfigured()?pill("Konfigurasi tersedia","good"):pill("Belum dikonfigurasi","warn")}</div><div className="setting-row"><span>Status Penyimpanan</span><strong>{syncState}</strong></div>{userId?<><div className="setting-row"><span>Akun</span><strong>{userEmail}</strong></div><button className="btn btn-outline" onClick={signOut}><LogOut size={16}/> Keluar dari cloud</button></>:cloudConfigured()?<form className="auth-form" onSubmit={e=>signIn(e,false)}><label>Email<input type="email" required value={authForm.email} onChange={e=>setAuthForm(f=>({...f,email:e.target.value}))} placeholder="nama@perusahaan.com"/></label><label>Password<input type="password" minLength={6} required value={authForm.password} onChange={e=>setAuthForm(f=>({...f,password:e.target.value}))} placeholder="Masukkan password"/></label><div className="auth-actions"><button className="btn btn-primary" disabled={cloudBusy} type="submit">Masuk Cloud</button><button className="btn btn-outline" disabled={cloudBusy} type="button" onClick={e=>signIn(e as unknown as React.FormEvent,true)}>Daftar Akun Baru</button></div></form>:<p className="settings-note">Untuk aktivasi cloud, buat proyek Supabase khusus OPSPIRY, jalankan <code>supabase/schema.sql</code>, lalu isi variabel environment Vercel. Database BBM, GPP dan CSB tidak digunakan.</p>}{cloudError&&<p className="form-error" role="alert">{cloudError}</p>}</section>
-      <section className="surface settings-card"><div className="settings-heading"><div className="settings-icon"><Smartphone size={24}/></div><div><h3>Instal Aplikasi</h3><p>OPSPIRY dapat dipasang sebagai aplikasi dari browser yang mendukung PWA.</p></div></div><p className="settings-note">Di Chrome atau Edge, gunakan menu browser → Instal aplikasi / Tambahkan ke layar utama. Aplikasi tetap memerlukan koneksi untuk beberapa halaman.</p><button className="btn btn-outline" disabled={!installPrompt} onClick={async()=>{if(installPrompt){await installPrompt.prompt();await installPrompt.userChoice;setInstallPrompt(null);}}}><Smartphone size={17}/> {installPrompt?"Instal OPSPIRY":"Instalasi melalui browser"}</button><div className="divider-space"/><div className="settings-heading"><div className="settings-icon"><ShieldCheck size={22}/></div><div><h3>Keamanan & Ruang Lingkup</h3><p>Mode cloud MVP menggunakan akses per akun (RLS). Manajemen cabang, persetujuan dan akuntansi lengkap masih tahap pengembangan.</p></div></div></section></div>
+      <div className="settings-grid">
+        <section className="surface settings-card settings-card-compact">
+          <button type="button" className="settings-toggle" aria-expanded={expandedSetting==="cloud"} aria-controls="opspiry-cloud-details" onClick={()=>setExpandedSetting(value=>value==="cloud"?null:"cloud")}>
+            <span className="settings-icon"><Cloud size={24}/></span>
+            <h3>Sinkronisasi Data Cloud</h3>
+            <ChevronDown className={"settings-chevron "+(expandedSetting==="cloud"?"is-open":"")} size={19}/>
+          </button>
+          {expandedSetting==="cloud"&&<div id="opspiry-cloud-details" className="settings-details">
+            <div className="setting-row"><span>Status Database</span>{cloudConfigured()?pill("Konfigurasi tersedia","good"):pill("Belum dikonfigurasi","warn")}</div>
+            <div className="setting-row"><span>Status Penyimpanan</span><strong>{syncState}</strong></div>
+            {userId?<><div className="setting-row"><span>Akun</span><strong>{userEmail}</strong></div><button className="btn btn-outline" onClick={signOut}><LogOut size={16}/> Keluar dari cloud</button></>:cloudConfigured()?<form className="auth-form" onSubmit={e=>signIn(e,false)}><label>Email<input type="email" required value={authForm.email} onChange={e=>setAuthForm(f=>({...f,email:e.target.value}))} placeholder="nama@perusahaan.com"/></label><label>Password<input type="password" minLength={6} required value={authForm.password} onChange={e=>setAuthForm(f=>({...f,password:e.target.value}))} placeholder="Masukkan password"/></label><div className="auth-actions"><button className="btn btn-primary" disabled={cloudBusy} type="submit">Masuk Cloud</button><button className="btn btn-outline" disabled={cloudBusy} type="button" onClick={e=>signIn(e as unknown as React.FormEvent,true)}>Daftar Akun Baru</button></div></form>:null}
+            {cloudError&&<p className="form-error" role="alert">{cloudError}</p>}
+          </div>}
+        </section>
+        <section className="surface settings-card settings-card-compact">
+          <button type="button" className="settings-toggle" aria-expanded={expandedSetting==="install"} aria-controls="opspiry-install-details" onClick={()=>setExpandedSetting(value=>value==="install"?null:"install")}>
+            <span className="settings-icon"><Smartphone size={24}/></span>
+            <h3>Instal Aplikasi</h3>
+            <ChevronDown className={"settings-chevron "+(expandedSetting==="install"?"is-open":"")} size={19}/>
+          </button>
+          {expandedSetting==="install"&&<div id="opspiry-install-details" className="settings-details">
+            {installPrompt?<button className="btn btn-outline" onClick={async()=>{await installPrompt.prompt();await installPrompt.userChoice;setInstallPrompt(null);}}><Smartphone size={17}/> Instal OPSPIRY</button>:<span className="settings-short-hint">Instal melalui menu browser.</span>}
+          </div>}
+        </section>
+      </div>
       <section className="surface reset-card"><div><h3>Cadangkan Data OPSPIRY</h3><p>Unduh data sebagai JSON. Mode demo mendukung pemulihan backup setelah konfirmasi.</p></div><div className="backup-buttons"><button className="btn btn-outline" onClick={exportBackup}><Download size={16}/> Backup JSON</button><input aria-label="Pilih backup" type="file" accept=".json,application/json" ref={restoreInput} hidden onChange={e=>importBackup(e.target.files?.[0])}/><button className="btn btn-outline" disabled={!!userId} onClick={()=>restoreInput.current?.click()}><Upload size={16}/> Pulihkan Backup</button></div></section>
       {!userId&&<section className="surface reset-card"><div><h3>Reset Data Simulasi</h3><p>Hapus perubahan yang tersimpan di browser ini dan muat ulang data contoh.</p></div><button className="btn btn-danger-outline" onClick={()=>{if(confirm("Reset seluruh data demo di browser ini?")){setData(seedData());toastIt("Data demo berhasil direset");}}}><RefreshCw size={16}/> Reset data contoh</button></section>}
     </>}
