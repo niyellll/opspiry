@@ -64,6 +64,30 @@ export default function Home() {
  const [syncState,setSyncState]=useState("Data tersimpan di browser");
  const [installPrompt,setInstallPrompt]=useState<null|{prompt:()=>Promise<void>;userChoice:Promise<{outcome:string}>}>(null);
  const dataRef=useRef(data);
+ const restoreInput=useRef<HTMLInputElement|null>(null);
+ function exportBackup(){
+  const payload={format:"opspiry-backup",version:1,createdAt:new Date().toISOString(),data};
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json;charset=utf-8"});
+  const url=URL.createObjectURL(blob);const a=document.createElement("a");
+  a.href=url;a.download="OPSPIRY-backup-"+today()+".json";a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),5000);toastIt("Backup JSON berhasil diunduh");
+ }
+ async function importBackup(file:File|undefined){
+  if(!file)return;
+  if(userId){toastIt("Impor backup dinonaktifkan dalam mode cloud untuk menghindari penimpaan data.");return;}
+  if(file.size>3_000_000){toastIt("File terlalu besar. Maksimal 3 MB.");return;}
+  try{
+   const parsed=JSON.parse(await file.text());
+   if(parsed?.format!=="opspiry-backup"||parsed?.version!==1)throw Error("Format backup tidak dikenali.");
+   const d=parsed.data as AppData;
+   if(!d||!Array.isArray(d.products)||!Array.isArray(d.partners)||!Array.isArray(d.orders)||!Array.isArray(d.deliveries)||!Array.isArray(d.adjustments))throw Error("Struktur backup tidak lengkap.");
+   if(d.products.length>10000||d.partners.length>20000||d.orders.length>100000||d.deliveries.length>100000||d.adjustments.length>100000)throw Error("Jumlah data terlalu besar.");
+   if(d.products.some(p=>typeof p.id!=="string"||typeof p.name!=="string"||!Number.isFinite(p.opening)||!Number.isFinite(p.price)||!Number.isFinite(p.cost))||d.orders.some(o=>typeof o.id!=="string"||!["sale","purchase"].includes(o.kind)||!Number.isFinite(o.qty)||!Number.isFinite(o.price)||!Number.isFinite(o.paid)))throw Error("Isi backup tidak valid.");
+   if(!window.confirm("Impor backup akan mengganti seluruh data demo saat ini. Lanjutkan?"))return;
+   setData(d);toastIt("Backup berhasil dipulihkan.");
+  }catch(error){toastIt(error instanceof Error?error.message:"Gagal membaca backup.");}
+  finally{if(restoreInput.current)restoreInput.current.value="";}
+ }
  useEffect(()=>{dataRef.current=data;},[data]);
  useEffect(()=>{
   try { const raw=localStorage.getItem("opspiry_demo_v1");if(raw){const parsed=JSON.parse(raw);if(parsed&&Array.isArray(parsed.products)&&Array.isArray(parsed.orders))setData(parsed);} } catch{}
@@ -161,7 +185,7 @@ export default function Home() {
   let header:string[]=[];let rows:(string|number)[][]=[];
   if(page==="Penjualan"||page==="Pembelian"||page==="Hutang & Piutang"||page==="Laporan"||page==="Dashboard"){
    header=["No Dokumen","Jenis","Tanggal","Mitra","Produk","Qty","Harga","Total","Dibayar","Sisa","Jatuh Tempo"];
-   rows=data.orders.map(o=>[o.number,kindLabel(o.kind),o.date,findPartner(o.partnerId),findProduct(o.productId),o.qty,o.price,amount(o),o.paid,remaining(o),o.due]);
+   rows=data.orders.filter(o=>page==="Penjualan"?o.kind==="sale":page==="Pembelian"?o.kind==="purchase":page==="Hutang & Piutang"?remaining(o)>0:true).map(o=>[o.number,kindLabel(o.kind),o.date,findPartner(o.partnerId),findProduct(o.productId),o.qty,o.price,amount(o),o.paid,remaining(o),o.due]);
   }else if(page==="Produk"||page==="Persediaan"){header=["Kode","Produk","Kategori","Satuan","Stok","Minimum","Harga Jual","Harga Beli"];rows=data.products.map(p=>[p.code,p.name,p.category,p.unit,productStock(data,p.id),p.min,p.price,p.cost]);}
   else if(page==="Distribusi"){header=["Faktur","Pengemudi","Kendaraan","Tujuan","Jadwal","Status"];rows=data.deliveries.map(d=>[data.orders.find(o=>o.id===d.orderId)?.number||"",d.driver,d.vehicle,d.destination,d.date,d.status]);}
   else {header=["Kode","Nama","Kota","Telepon"];rows=data.partners.filter(p=>p.type===(page==="Supplier"?"supplier":"customer")).map(p=>[p.code,p.name,p.city,p.phone]);}
@@ -237,6 +261,7 @@ export default function Home() {
     {page==="Pengaturan"&&<>
       <div className="settings-grid"><section className="surface settings-card"><div className="settings-heading"><div className="settings-icon"><Cloud size={24}/></div><div><h3>Sinkronisasi Data Cloud</h3><p>Aktifkan untuk menyimpan data dengan akun pribadi, bukan hanya di browser ini.</p></div></div><div className="setting-row"><span>Status Database</span>{cloudConfigured()?pill("Konfigurasi tersedia","good"):pill("Belum dikonfigurasi","warn")}</div><div className="setting-row"><span>Status Penyimpanan</span><strong>{syncState}</strong></div>{userId?<><div className="setting-row"><span>Akun</span><strong>{userEmail}</strong></div><button className="btn btn-outline" onClick={signOut}><LogOut size={16}/> Keluar dari cloud</button></>:cloudConfigured()?<form className="auth-form" onSubmit={e=>signIn(e,false)}><label>Email<input type="email" required value={authForm.email} onChange={e=>setAuthForm(f=>({...f,email:e.target.value}))} placeholder="nama@perusahaan.com"/></label><label>Password<input type="password" minLength={6} required value={authForm.password} onChange={e=>setAuthForm(f=>({...f,password:e.target.value}))} placeholder="Masukkan password"/></label><div className="auth-actions"><button className="btn btn-primary" disabled={cloudBusy} type="submit">Masuk Cloud</button><button className="btn btn-outline" disabled={cloudBusy} type="button" onClick={e=>signIn(e as unknown as React.FormEvent,true)}>Daftar Akun Baru</button></div></form>:<p className="settings-note">Untuk aktivasi cloud, buat proyek Supabase khusus OPSPIRY, jalankan <code>supabase/schema.sql</code>, lalu isi variabel environment Vercel. Database BBM, GPP dan CSB tidak digunakan.</p>}{cloudError&&<p className="form-error" role="alert">{cloudError}</p>}</section>
       <section className="surface settings-card"><div className="settings-heading"><div className="settings-icon"><Smartphone size={24}/></div><div><h3>Instal Aplikasi</h3><p>OPSPIRY dapat dipasang sebagai aplikasi dari browser yang mendukung PWA.</p></div></div><p className="settings-note">Di Chrome atau Edge, gunakan menu browser → Instal aplikasi / Tambahkan ke layar utama. Aplikasi tetap memerlukan koneksi untuk beberapa halaman.</p><button className="btn btn-outline" disabled={!installPrompt} onClick={async()=>{if(installPrompt){await installPrompt.prompt();await installPrompt.userChoice;setInstallPrompt(null);}}}><Smartphone size={17}/> {installPrompt?"Instal OPSPIRY":"Instalasi melalui browser"}</button><div className="divider-space"/><div className="settings-heading"><div className="settings-icon"><ShieldCheck size={22}/></div><div><h3>Keamanan & Ruang Lingkup</h3><p>Mode cloud MVP menggunakan akses per akun (RLS). Manajemen cabang, persetujuan dan akuntansi lengkap masih tahap pengembangan.</p></div></div></section></div>
+      <section className="surface reset-card"><div><h3>Cadangkan Data OPSPIRY</h3><p>Unduh data sebagai JSON. Mode demo mendukung pemulihan backup setelah konfirmasi.</p></div><div className="backup-buttons"><button className="btn btn-outline" onClick={exportBackup}><Download size={16}/> Backup JSON</button><input aria-label="Pilih backup" type="file" accept=".json,application/json" ref={restoreInput} hidden onChange={e=>importBackup(e.target.files?.[0])}/><button className="btn btn-outline" disabled={!!userId} onClick={()=>restoreInput.current?.click()}><Upload size={16}/> Pulihkan Backup</button></div></section>
       {!userId&&<section className="surface reset-card"><div><h3>Reset Data Simulasi</h3><p>Hapus perubahan yang tersimpan di browser ini dan muat ulang data contoh.</p></div><button className="btn btn-danger-outline" onClick={()=>{if(confirm("Reset seluruh data demo di browser ini?")){setData(seedData());toastIt("Data demo berhasil direset");}}}><RefreshCw size={16}/> Reset data contoh</button></section>}
     </>}
     <footer className="app-footer"><span>© 2026 OPSPIRY · Distribution Operating System</span><span><span className="footer-live"/> {syncState}</span></footer>

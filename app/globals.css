@@ -35,3 +35,5 @@
  .print-note{padding-top:8mm;font-size:9pt;max-width:110mm}.print-note p{margin:2mm 0;color:#666;line-height:1.6}
  .print-bottom{margin-top:22mm;padding-top:7mm;border-top:1px solid #ddd;color:#7c8188;font-size:8pt;display:flex;align-items:center;justify-content:space-between;gap:8mm}.print-bottom p{max-width:100mm;line-height:1.5}.print-bottom strong{font-size:8pt;color:#a10c1a}
 }
+.backup-buttons{display:flex;flex-wrap:wrap;gap:8px}
+@media(max-width:680px){.backup-buttons{width:100%}.backup-buttons .btn{flex:1}}
