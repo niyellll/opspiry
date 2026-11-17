@@ -14,7 +14,7 @@
 
 ## 2. Lingkup, bukti, dan batasan
 
-- Inspeksi terhadap **seluruh 22 file yang tersedia** (file source, doc, SQL, dan aset; PNG terdaftar tetapi isi biner tidak dievaluasi). Referensi file:baris di tabel mengacu ke commit snapshot di atas.
+- Inspeksi terhadap **20 file yang tersedia pada snapshot (18 berkas teks + 2 aset PNG)** (file source, doc, SQL, dan aset; PNG terdaftar tetapi isi biner tidak dievaluasi). Referensi file:baris di tabel mengacu ke commit snapshot di atas.
 - File utama: `app/page.tsx` (280 baris sangat panjang, ±49 KB), `app/globals.css`, `lib/data.ts`, `lib/cloud.ts`, `lib/reporting.ts`, `supabase/schema.sql`, `components/InvoicePrint.tsx`, manifest dan SW, package, README.
 - Metode: review statis source dan alur kode, contoh *counterexample* aritmetika, inspeksi metadata Vercel dan **nama** env yang tampak; tidak membaca kredensial.
 - **Tidak dilakukan:** uji browser/Playwright, test fisik PWA, tes RLS cloud, audit keamanan runtime, CI unit test, uji transaksi 2 perangkat sebenarnya, axe/WCAG. Build sukses **bukan** pembuktian keamanan dan fungsi akuntansi.
