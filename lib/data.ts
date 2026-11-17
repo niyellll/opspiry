@@ -3,11 +3,13 @@ export type Product = { id: string; code: string; name: string; category: string
 export type Order = { id: string; number: string; kind: "sale" | "purchase"; date: string; partnerId: string; productId: string; qty: number; price: number; paid: number; due: string; note: string };
 export type Delivery = { id: string; orderId: string; driver: string; vehicle: string; destination: string; status: "Dijadwalkan" | "Dalam Perjalanan" | "Terkirim"; date: string };
 export type Adjustment = { id: string; productId: string; qty: number; note: string; date: string };
-export type AppData = { products: Product[]; partners: Partner[]; orders: Order[]; deliveries: Delivery[]; adjustments: Adjustment[] };
-export const emptyData: AppData = { products: [], partners: [], orders: [], deliveries: [], adjustments: [] };
+export type Payment = { id: string; orderId: string; date: string; amount: number; method: string; reference: string };
+export type AppData = { products: Product[]; partners: Partner[]; orders: Order[]; deliveries: Delivery[]; adjustments: Adjustment[]; payments?: Payment[] };
+export const emptyData: AppData = { products: [], partners: [], orders: [], deliveries: [], adjustments: [], payments: [] };
 export const id = () => typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2);
-export const today = () => new Date().toISOString().slice(0,10);
-export const addDays = (date: string, days: number) => { const d = new Date(date + "T12:00:00"); d.setDate(d.getDate() + days); return d.toISOString().slice(0,10); };
+const localDate = (date: Date) => [date.getFullYear(),String(date.getMonth()+1).padStart(2,"0"),String(date.getDate()).padStart(2,"0")].join("-");
+export const today = () => localDate(new Date());
+export const addDays = (date: string, days: number) => { const d = new Date(date + "T12:00:00"); d.setDate(d.getDate() + days); return localDate(d); };
 export const money = (value: number) => "Rp " + Math.round(value).toLocaleString("id-ID");
 export const num = (value: number) => value.toLocaleString("id-ID");
 export const shortDate = (value: string) => new Date(value + "T12:00:00").toLocaleDateString("id-ID", {day:"2-digit",month:"short",year:"numeric"});
@@ -51,7 +53,8 @@ export function seedData(): AppData {
   {id:"d3",orderId:"o4",driver:"Pak Budi",vehicle:"L 1234 AB",destination:"Malang",status:"Dalam Perjalanan",date:day},
   {id:"d4",orderId:"o5",driver:"Pak Anton",vehicle:"W 2401 CD",destination:"Surabaya",status:"Dijadwalkan",date:addDays(day,1)}
  ];
- return {products, partners, orders, deliveries, adjustments:[]};
+ const payments: Payment[] = orders.filter(o=>o.paid>0).map(o=>({id:"pay-"+o.id,orderId:o.id,date:o.date,amount:o.paid,method:"Data awal",reference:"Simulasi"}));
+ return {products, partners, orders, deliveries, adjustments:[], payments};
 }
 export function csvDownload(name: string, rows: (string|number)[][]) {
  const csv = "\uFEFF" + rows.map(row => row.map(cell => '"' + String(cell).replace(/"/g,'""') + '"').join(",")).join("\r\n");

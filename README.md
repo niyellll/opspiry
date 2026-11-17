@@ -9,7 +9,7 @@ A responsive Next.js 16 / React 19 web application inspired by the supplied red-
 - Responsive dashboard: invoice turnover, estimated gross profit, receivables, inventory valuation, 7-day trend and quick actions.
 - Sales and purchases: create invoices with product, counterparty, quantity, due date and partial payment; basic oversell validation.
 - Inventory: stock from opening + purchases - sales + adjustments, minimum-stock warnings, movement history.
-- A/R and A/P: outstanding balances and partial or full payment recording.
+- A/R and A/P: outstanding balances, partial/full payments, methods, reference numbers and payment history.\n- Printable purchase/sales documents with marked preview/simulation status.\n- A/R and A/P aging (not due, 1–30, 31–60, >60 days) and payment-history CSV export.
 - Master data: products, customers and suppliers.
 - Distribution: delivery orders with driver, vehicle, destination and three shipment statuses.
 - Reports: simple financial metrics and product contribution; CSV exports.
