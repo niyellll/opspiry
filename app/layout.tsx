@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   description: "Satu sistem untuk penjualan, persediaan, hutang-piutang, distribusi dan pengambilan keputusan bisnis.",
   applicationName: "OPSPIRY",
   manifest: "/manifest.webmanifest",
-  icons: { icon: "/logo.svg", apple: "/logo.svg" }
+  icons: { icon: "/icon-192.png", apple: "/icon-192.png" }
 };
 export const viewport: Viewport = {
   width: "device-width", initialScale: 1, themeColor: "#a90c16"
