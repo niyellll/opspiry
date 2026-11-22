@@ -1,5 +1,5 @@
-const CACHE = "opspiry-shell-v4";
-const SHELL_ASSETS = ["/", "/opspiry-mark.svg", "/icon-192.png", "/icon-512.png", "/manifest.webmanifest"];
+const CACHE = "bsm-shell-v5";
+const SHELL_ASSETS = ["/", "/bsm-logo.png", "/icon-192.png", "/icon-512.png", "/manifest.webmanifest"];
 
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL_ASSETS)).then(() => self.skipWaiting()));
