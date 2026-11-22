@@ -32,11 +32,11 @@ const blankProduct = { name:"", category:"Sembako",unit:"karton",price:"",cost:"
 const TABS: Page[] = ["Dashboard","Penjualan","Pembelian","Persediaan","Hutang & Piutang","Pelanggan","Supplier","Produk","Distribusi","Laporan","Pengaturan"];
 const kindLabel = (k: "sale"|"purchase") => k==="sale"?"Penjualan":"Pembelian";
 const pill = (text: string, type:"good"|"warn"|"danger"|"neutral"="neutral") => <span className={"status status-"+type}><span className="status-dot"/>{text}</span>;
-function MiniChart({values, color="#0869be", height=108}:{values:number[]; color?:string;height?:number}) {
+function MiniChart({values, color="#b20a17", height=108}:{values:number[]; color?:string;height?:number}) {
  const max=Math.max(...values,1);
  const pts=values.map((v,i)=>String(12+i*(276/Math.max(1,values.length-1)))+","+String(110-(v/max)*87)).join(" ");
  const area="12,114 "+pts+" 288,114";
- return <svg className="mini-chart" viewBox="0 0 300 124" style={{height}} role="img" aria-label="Grafik tren penjualan"><defs><linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1"><stop stopColor="#0b99ed" stopOpacity=".18"/><stop offset="1" stopColor="#0b99ed" stopOpacity="0"/></linearGradient></defs><line x1="8" y1="114" x2="292" y2="114" stroke="#e9ebf0"/><line x1="8" y1="64" x2="292" y2="64" stroke="#eef0f4" strokeDasharray="4 5"/><polygon points={area} fill="url(#chartFill)"/><polyline points={pts} fill="none" stroke={color} strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"/>{values.map((v,i)=><circle key={i} cx={12+i*(276/Math.max(1,values.length-1))} cy={110-(v/max)*87} r="3.5" fill={color} stroke="#fff" strokeWidth="2"/>)}</svg>;
+ return <svg className="mini-chart" viewBox="0 0 300 124" style={{height}} role="img" aria-label="Grafik tren penjualan"><defs><linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1"><stop stopColor="#d31828" stopOpacity=".18"/><stop offset="1" stopColor="#d31828" stopOpacity="0"/></linearGradient></defs><line x1="8" y1="114" x2="292" y2="114" stroke="#e9ebf0"/><line x1="8" y1="64" x2="292" y2="64" stroke="#eef0f4" strokeDasharray="4 5"/><polygon points={area} fill="url(#chartFill)"/><polyline points={pts} fill="none" stroke={color} strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"/>{values.map((v,i)=><circle key={i} cx={12+i*(276/Math.max(1,values.length-1))} cy={110-(v/max)*87} r="3.5" fill={color} stroke="#fff" strokeWidth="2"/>)}</svg>;
 }
 export default function Home() {
  const [page,setPage]=useState<Page>("Dashboard");
@@ -44,7 +44,6 @@ export default function Home() {
  const [ready,setReady]=useState(false);
  const [modal,setModal]=useState<Modal>(null);
  const [search,setSearch]=useState("");
- const [sidebar,setSidebar]=useState(false);
  const [toast,setToast]=useState("");
  const [saleForm,setSaleForm]=useState(blankSale);
  const [partnerForm,setPartnerForm]=useState(blankPartner);
@@ -64,14 +63,13 @@ export default function Home() {
  const [syncState,setSyncState]=useState("Data tersimpan di browser");
  const [expandedSetting,setExpandedSetting]=useState<"cloud"|"install"|null>(null);
  const [installPrompt,setInstallPrompt]=useState<null|{prompt:()=>Promise<void>;userChoice:Promise<{outcome:string}>}>(null);
- const sidebarNavRef=useRef<HTMLDivElement>(null);
  const dataRef=useRef(data);
  const restoreInput=useRef<HTMLInputElement|null>(null);
  function exportBackup(){
   const payload={format:"opspiry-backup",version:1,createdAt:new Date().toISOString(),data};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json;charset=utf-8"});
   const url=URL.createObjectURL(blob);const a=document.createElement("a");
-  a.href=url;a.download="BSM-backup-"+today()+".json";a.click();
+  a.href=url;a.download="OPSPIRY-backup-"+today()+".json";a.click();
   setTimeout(()=>URL.revokeObjectURL(url),5000);toastIt("Backup JSON berhasil diunduh");
  }
  async function importBackup(file:File|undefined){
@@ -97,7 +95,7 @@ export default function Home() {
   const cloud=getCloud();
   if(cloud){cloud.auth.getUser().then(async ({data:auth})=>{
     if(!auth.user) return;
-    try {const remote=await loadRemote(auth.user.id);setUserId(auth.user.id);setUserEmail(auth.user.email||"");setData(remote||emptyData);setSyncState("Cloud BSM aktif");}
+    try {const remote=await loadRemote(auth.user.id);setUserId(auth.user.id);setUserEmail(auth.user.email||"");setData(remote||emptyData);setSyncState("Cloud OPSPIRY aktif");}
     catch(e){setCloudError(e instanceof Error?e.message:"Gagal memuat data cloud");}
    });}
   const onInstall=(event: Event)=>{event.preventDefault();setInstallPrompt(event as unknown as {prompt:()=>Promise<void>;userChoice:Promise<{outcome:string}>});};
@@ -111,16 +109,7 @@ export default function Home() {
    const timer=setTimeout(()=>{saveRemote(userId,data).then(()=>setSyncState("Tersimpan di cloud")).catch(e=>{setSyncState("Sinkronisasi gagal");setCloudError(e.message);});},650);
    return ()=>clearTimeout(timer);
  },[data,ready,userId]);
- useEffect(()=>{setSearch("");setSidebar(false);window.scrollTo({top:0,behavior:"smooth"});},[page]);
- useEffect(()=>{
-  const nav=sidebarNavRef.current;
-  const active=nav?.querySelector<HTMLElement>(".nav-item.selected");
-  if(!nav||!active)return;
-  const container=nav.getBoundingClientRect();
-  const selected=active.getBoundingClientRect();
-  if(selected.top<container.top+8)nav.scrollTop-=container.top-selected.top+8;
-  if(selected.bottom>container.bottom-8)nav.scrollTop+=selected.bottom-container.bottom+8;
- },[page]);
+ useEffect(()=>{setSearch("");window.scrollTo({top:0,behavior:"smooth"});},[page]);
  useEffect(()=>{if(toast){const t=setTimeout(()=>setToast(""),3800);return()=>clearTimeout(t);}},[toast]);
  useEffect(()=>{
   if(!printOrder)return;
@@ -200,32 +189,60 @@ export default function Home() {
   }else if(page==="Produk"||page==="Persediaan"){header=["Kode","Produk","Kategori","Satuan","Stok","Minimum","Harga Jual","Harga Beli"];rows=data.products.map(p=>[p.code,p.name,p.category,p.unit,productStock(data,p.id),p.min,p.price,p.cost]);}
   else if(page==="Distribusi"){header=["Faktur","Pengemudi","Kendaraan","Tujuan","Jadwal","Status"];rows=data.deliveries.map(d=>[data.orders.find(o=>o.id===d.orderId)?.number||"",d.driver,d.vehicle,d.destination,d.date,d.status]);}
   else {header=["Kode","Nama","Kota","Telepon"];rows=data.partners.filter(p=>p.type===(page==="Supplier"?"supplier":"customer")).map(p=>[p.code,p.name,p.city,p.phone]);}
-  csvDownload("BSM-"+page.replace(/[^a-zA-Z]/g,"-")+"-"+today()+".csv",[header,...rows]);toastIt("File CSV berhasil diunduh");
+  csvDownload("OPSPIRY-"+page.replace(/[^a-zA-Z]/g,"-")+"-"+today()+".csv",[header,...rows]);toastIt("File CSV berhasil diunduh");
  }
  async function signIn(event:React.FormEvent,signUp=false){
   event.preventDefault();const cloud=getCloud();if(!cloud){setCloudError("Konfigurasi database belum tersedia.");return;}
   setCloudError("");setCloudBusy(true);
   try{
    if(signUp){const {error}=await cloud.auth.signUp({email:authForm.email,password:authForm.password});if(error)throw error;toastIt("Pendaftaran dikirim. Konfirmasi email jika diminta.");}
-   else {const {data:result,error}=await cloud.auth.signInWithPassword({email:authForm.email,password:authForm.password});if(error)throw error;if(result.user){const remote=await loadRemote(result.user.id);setData(remote||emptyData);setUserId(result.user.id);setUserEmail(result.user.email||"");setSyncState("Cloud BSM aktif");toastIt("Berhasil masuk ke ruang kerja cloud");}}
+   else {const {data:result,error}=await cloud.auth.signInWithPassword({email:authForm.email,password:authForm.password});if(error)throw error;if(result.user){const remote=await loadRemote(result.user.id);setData(remote||emptyData);setUserId(result.user.id);setUserEmail(result.user.email||"");setSyncState("Cloud OPSPIRY aktif");toastIt("Berhasil masuk ke ruang kerja cloud");}}
   }catch(e){setCloudError(e instanceof Error?e.message:"Gagal login");}finally{setCloudBusy(false);}
  }
  async function signOut(){const cloud=getCloud();if(cloud)await cloud.auth.signOut();setUserId(null);setUserEmail("");try{const raw=localStorage.getItem("opspiry_demo_v1");setData(raw?JSON.parse(raw):seedData());}catch{setData(seedData());}toastIt("Keluar dari cloud. Mode demo aktif.");}
  const rowOrder=(o:Order)=><tr key={o.id}><td><strong className="ref">{o.number}</strong><small>{shortDate(o.date)}</small></td><td><strong>{findPartner(o.partnerId)}</strong><small>{findProduct(o.productId)} · {num(o.qty)} unit</small></td><td className="numeric">{money(amount(o))}</td><td className="numeric">{money(remaining(o))}</td><td>{remaining(o)===0?pill("Lunas","good"):o.due<today()?pill("Terlambat","danger"):pill("Belum lunas","warn")}</td><td className="center"><div className="action-pair"><button className="icon-button" aria-label={"Cetak faktur "+o.number} title="Cetak faktur" onClick={()=>setPrintOrder(o.id)}><Printer size={18}/></button><button className="icon-button" title="Catat pembayaran" aria-label={"Catat pembayaran "+o.number} onClick={()=>{setPayOrder(o.id);setPayAmount(String(remaining(o)));setPayMethod("Transfer Bank");setPayReference("");}} disabled={remaining(o)===0}><CircleDollarSign size={18}/></button></div></td></tr>;
  const tableCard=(heading:string,headings:string[],body:React.ReactNode,side?:React.ReactNode)=><section className="surface table-surface"><div className="section-header"><div><h3>{heading}</h3><p>Data diperbarui berdasarkan aktivitas yang dicatat</p></div>{side}</div><div className="table-scroll"><table><thead><tr>{headings.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{body}</tbody></table></div></section>;
- return <div className="shell">
-  {sidebar&&<button className="scrim" aria-label="Tutup navigasi" onClick={()=>setSidebar(false)}/>}
-  <aside className={"sidebar "+(sidebar?"mobile-open":"")}><div className="brand"><img className="brand-logo" src="/bsm-logo.png" alt="Logo BSM" width={52} height={52}/><div className="brand-copy"><strong>PT. BUKIT SION MEDIKAL</strong><small>SISTEM OPERASIONAL</small></div><button className="mobile-close" aria-label="Tutup menu" onClick={()=>setSidebar(false)}><X size={20}/></button></div>
-  <div className="sidebar-branch"><div className="branch-avatar"><Building2 size={18}/></div><div><strong>BSM Workspace</strong><small>{userId?"Cloud pribadi":"Mode demo"}</small></div><ChevronDown size={16}/></div>
-  <div className="sidebar-nav" ref={sidebarNavRef}>{navigation.map(group=><div className="nav-group" key={group.group}><div className="nav-caption">{group.group}</div>{group.items.map(item=><button key={item.name} className={"nav-item "+(page===item.name?"selected":"")} onClick={()=>setPage(item.name as Page)}><item.icon size={19} strokeWidth={1.9}/><span>{item.name}</span>{item.name==="Hutang & Piutang"&&receivables+payables>0&&<span className="nav-indicator"/>}</button>)}</div>)}</div>
-  <div className="sidebar-bottom"><div className="sidebar-support"><div className="sidebar-support-icon"><ShieldCheck size={20}/></div><strong>Satu sistem, lebih banyak kontrol.</strong><p>Catat, ukur, dan kendalikan bisnis dari satu tempat.</p></div><div className="sidebar-caption">PT. Bukit Sion Medikal © 2026</div></div>
-  </aside>
+ return <div className="shell os-shell">
   <div className="main-panel">
-   <header className="topbar"><div className="topbar-left"><button className="icon-button menu-toggle" onClick={()=>setSidebar(true)} aria-label="Buka menu"><Menu size={21}/></button><div className="crumb">Workspace <ChevronRight size={15}/> <strong>{page}</strong></div></div><div className="topbar-right"><div className="global-search"><Search size={17}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Cari data di halaman ini…" aria-label="Cari data"/></div><span className="top-divider"/><span className="top-date"><CalendarDays size={16}/>{new Date().toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"})}</span><span className="top-divider"/><button className="profile-button" onClick={()=>setPage("Pengaturan")} aria-label="Lihat pengaturan akun"><span className="profile-avatar">BS</span><span className="profile-info"><strong>Administrator</strong><small>{userId?"Cloud":"Demo Workspace"}</small></span><ChevronDown size={14}/></button></div></header>
+   <header className="os-header">
+    <button className="os-brand" type="button" onClick={()=>setPage("Dashboard")} aria-label="Kembali ke dashboard OPSPIRY">
+     <span className="os-brand-mark" aria-hidden="true"><span>O</span></span>
+     <span className="os-brand-copy"><strong>OPSPIRY</strong><small>OPERATING SYSTEM</small></span>
+    </button>
+    <div className="os-header-caption">Distribution Management System <span>·</span> Catat. Ukur. Analisis. Bertumbuh.</div>
+    <div className="os-header-controls">
+     <div className="os-search"><Search size={17}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Cari data halaman…" aria-label="Cari data halaman"/></div>
+     <span className="os-current-date"><CalendarDays size={16}/>{new Date().toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"})}</span>
+     <button className="os-account" type="button" onClick={()=>setPage("Pengaturan")} aria-label="Pengaturan dan akun"><span className="os-account-avatar">OS</span><span>{userId?"Cloud Pribadi":"Mode Demo"}</span><ChevronDown size={15}/></button>
+    </div>
+   </header>
+   <nav className="os-nav" aria-label="Menu utama OPSPIRY">
+    <div className="os-nav-inner">
+     {navigation.map(group=><div className="os-nav-group" key={group.group}>{group.items.map(item=><button type="button" key={item.name} className={"os-nav-item "+(page===item.name?"is-active":"")} aria-current={page===item.name?"page":undefined} onClick={()=>setPage(item.name as Page)}><item.icon size={17} strokeWidth={1.9}/><span>{item.name}</span>{item.name==="Hutang & Piutang"&&receivables+payables>0&&<i className="os-nav-dot" aria-label="Ada saldo terbuka"/>}</button>)}</div>)}
+    </div>
+   </nav>
    <main className="content">
-    <div className="page-intro"><div><div className="eyebrow"><span className="eyebrow-dot"/>{userId?"WORKSPACE CLOUD":"PREVIEW · DATA SIMULASI"}</div><h1>{page==="Dashboard"?"Selamat datang di PT. Bukit Sion Medikal":page}<span className="title-accent">.</span></h1><p>{pages[page]}</p></div><div className="intro-actions"><button className="btn btn-outline" onClick={exportActive}><Download size={17}/> Ekspor CSV</button><button className="btn btn-primary" onClick={()=>openModal(page==="Pembelian"?"purchase":page==="Produk"?"product":page==="Pelanggan"?"customer":page==="Supplier"?"supplier":page==="Distribusi"?"delivery":page==="Persediaan"?"adjustment":"sale")}><Plus size={18}/> {page==="Produk"?"Tambah Produk":page==="Pelanggan"?"Tambah Pelanggan":page==="Supplier"?"Tambah Supplier":page==="Distribusi"?"Buat Pengiriman":page==="Persediaan"?"Sesuaikan Stok":page==="Pembelian"?"Buat Pembelian":"Transaksi Baru"}</button></div></div>
+    <div className="page-intro"><div><div className="eyebrow"><span className="eyebrow-dot"/>{userId?"WORKSPACE CLOUD":"PREVIEW · DATA SIMULASI"}</div><h1>{page==="Dashboard"?"Dashboard OPSPIRY":page}<span className="title-accent">.</span></h1><p>{pages[page]}</p></div><div className="intro-actions"><button className="btn btn-outline" onClick={exportActive}><Download size={17}/> Ekspor CSV</button><button className="btn btn-primary" onClick={()=>openModal(page==="Pembelian"?"purchase":page==="Produk"?"product":page==="Pelanggan"?"customer":page==="Supplier"?"supplier":page==="Distribusi"?"delivery":page==="Persediaan"?"adjustment":"sale")}><Plus size={18}/> {page==="Produk"?"Tambah Produk":page==="Pelanggan"?"Tambah Pelanggan":page==="Supplier"?"Tambah Supplier":page==="Distribusi"?"Buat Pengiriman":page==="Persediaan"?"Sesuaikan Stok":page==="Pembelian"?"Buat Pembelian":"Transaksi Baru"}</button></div></div>
     {!userId&&<div className="demo-banner"><span className="demo-icon"><Activity size={17}/></span><span><strong>Mode simulasi aktif.</strong> Angka dan nama yang ditampilkan merupakan contoh, bukan data perusahaan nyata. Perubahan tersimpan di browser perangkat ini.</span><button onClick={()=>setPage("Pengaturan")}>Pengaturan cloud <ArrowRight size={15}/></button></div>}
     {page==="Dashboard"&&<>
+      <section className="os-hero" aria-label="Ringkasan OPSPIRY Distribution Management System">
+       <div className="os-hero-main">
+        <div className="os-hero-kicker"><span className="os-hero-kicker-dot"/> SATU SISTEM, LEBIH BANYAK KONTROL</div>
+        <h2>Distribusi <span>lebih terkontrol.</span><br/>Bisnis lebih terukur.</h2>
+        <p>Kelola penjualan, pembelian, persediaan, hutang-piutang dan pengiriman dari satu dashboard yang saling terhubung.</p>
+        <div className="os-hero-buttons">
+         <button className="os-hero-btn-primary" onClick={()=>openModal("sale")}><Plus size={17}/> Input Penjualan</button>
+         <button className="os-hero-btn-outline" onClick={()=>openModal("purchase")}><ShoppingBag size={17}/> Input Pembelian</button>
+         <button className="os-hero-btn-outline" onClick={()=>setPage("Persediaan")}><Package size={17}/> Cek Stok</button>
+        </div>
+       </div>
+       <div className="os-pulse-card">
+        <div className="os-pulse-title"><strong>Performa Penjualan</strong><span>7 hari terakhir</span></div>
+        <div className="os-pulse-amount">{money(salesDaily.reduce((sum,value)=>sum+value,0))}</div>
+        <MiniChart values={salesDaily} color="#c51223" height={107}/>
+        <div className="os-pulse-foot"><span><TrendingUp size={14}/> Grafik faktur harian</span><span>Live dari data workspace</span></div>
+       </div>
+      </section>
       <div className="metric-grid">
        {[{label:"Total Penjualan",value:money(sales),hint:ordersSale.length+" faktur penjualan",icon:TrendingUp,tone:"brand"},{label:"Estimasi Laba Kotor",value:money(grossProfit),hint:"Sebelum biaya operasional",icon:CircleDollarSign,tone:"green"},{label:"Piutang Pelanggan",value:money(receivables),hint:"Belum diterima",icon:ArrowDownLeft,tone:"orange"},{label:"Nilai Persediaan",value:money(inventoryWorth),hint:data.products.length+" jenis produk",icon:Boxes,tone:"blue"}].map((m,i)=><div className="metric-card" key={m.label}><div className="metric-top"><span>{m.label}</span><span className={"metric-icon "+m.tone}><m.icon size={20}/></span></div><strong className="metric-value">{m.value}</strong><div className="metric-foot"><span className="metric-foot-dot"/>{m.hint}</div>{i===0&&<div className="metric-watermark"><TrendingUp size={68}/></div>}</div>)}
       </div>
@@ -248,7 +265,7 @@ export default function Home() {
     {page==="Hutang & Piutang"&&<>
       <div className="compact-stats"><div><span>Piutang Belum Dibayar</span><strong>{money(receivables)}</strong></div><div><span>Hutang Belum Dibayar</span><strong>{money(payables)}</strong></div><div><span>Tagihan Terbuka</span><strong>{data.orders.filter(o=>remaining(o)>0).length}</strong></div></div>
       {tableCard("Kartu Hutang & Piutang",["No Dokumen","Mitra / Produk","Total","Outstanding","Status","Aksi"],data.orders.filter(o=>remaining(o)>0&&matches(o.number,findPartner(o.partnerId),findProduct(o.productId),kindLabel(o.kind))).map(rowOrder))}
-      {tableCard("Riwayat Pelunasan",["Tanggal","Nomor Dokumen","Mitra","Metode","Referensi","Nominal"],(data.payments||[]).filter(p=>matches(data.orders.find(o=>o.id===p.orderId)?.number||"",findPartner(data.orders.find(o=>o.id===p.orderId)?.partnerId||""),p.method,p.reference)).slice().reverse().map(p=>{const o=data.orders.find(o=>o.id===p.orderId);return <tr key={p.id}><td>{shortDate(p.date)}</td><td className="ref">{o?.number||"—"}</td><td>{findPartner(o?.partnerId||"")}</td><td>{p.method}</td><td>{p.reference||"—"}</td><td className="numeric strong-cell">{money(p.amount)}</td></tr>}),<button className="text-link" onClick={()=>{csvDownload("BSM-Riwayat-Pembayaran-"+today()+".csv",[["Tanggal","No Dokumen","Mitra","Metode","Referensi","Jumlah"],...(data.payments||[]).map(p=>{const o=data.orders.find(o=>o.id===p.orderId);return [p.date,o?.number||"",findPartner(o?.partnerId||""),p.method,p.reference,p.amount];})]);toastIt("Riwayat pembayaran diunduh");}}><Download size={14}/> Ekspor pembayaran</button>)}
+      {tableCard("Riwayat Pelunasan",["Tanggal","Nomor Dokumen","Mitra","Metode","Referensi","Nominal"],(data.payments||[]).filter(p=>matches(data.orders.find(o=>o.id===p.orderId)?.number||"",findPartner(data.orders.find(o=>o.id===p.orderId)?.partnerId||""),p.method,p.reference)).slice().reverse().map(p=>{const o=data.orders.find(o=>o.id===p.orderId);return <tr key={p.id}><td>{shortDate(p.date)}</td><td className="ref">{o?.number||"—"}</td><td>{findPartner(o?.partnerId||"")}</td><td>{p.method}</td><td>{p.reference||"—"}</td><td className="numeric strong-cell">{money(p.amount)}</td></tr>}),<button className="text-link" onClick={()=>{csvDownload("OPSPIRY-Riwayat-Pembayaran-"+today()+".csv",[["Tanggal","No Dokumen","Mitra","Metode","Referensi","Jumlah"],...(data.payments||[]).map(p=>{const o=data.orders.find(o=>o.id===p.orderId);return [p.date,o?.number||"",findPartner(o?.partnerId||""),p.method,p.reference,p.amount];})]);toastIt("Riwayat pembayaran diunduh");}}><Download size={14}/> Ekspor pembayaran</button>)}
     </>}
     {(page==="Pelanggan"||page==="Supplier")&&<>
       <div className="compact-stats"><div><span>Total {page}</span><strong>{data.partners.filter(p=>p.type===(page==="Pelanggan"?"customer":"supplier")).length}</strong></div><div><span>Total Transaksi</span><strong>{data.orders.filter(o=>o.kind===(page==="Pelanggan"?"sale":"purchase")).length}</strong></div><div><span>Total Outstanding</span><strong>{money(page==="Pelanggan"?receivables:payables)}</strong></div></div>
@@ -291,17 +308,17 @@ export default function Home() {
             <ChevronDown className={"settings-chevron "+(expandedSetting==="install"?"is-open":"")} size={19}/>
           </button>
           {expandedSetting==="install"&&<div id="opspiry-install-details" className="settings-details">
-            {installPrompt?<button className="btn btn-outline" onClick={async()=>{await installPrompt.prompt();await installPrompt.userChoice;setInstallPrompt(null);}}><Smartphone size={17}/> Instal BSM</button>:<span className="settings-short-hint">Instal melalui menu browser.</span>}
+            {installPrompt?<button className="btn btn-outline" onClick={async()=>{await installPrompt.prompt();await installPrompt.userChoice;setInstallPrompt(null);}}><Smartphone size={17}/> Instal OPSPIRY</button>:<span className="settings-short-hint">Instal melalui menu browser.</span>}
           </div>}
         </section>
       </div>
-      <section className="surface reset-card"><div><h3>Cadangkan Data BSM</h3><p>Unduh data sebagai JSON. Mode demo mendukung pemulihan backup setelah konfirmasi.</p></div><div className="backup-buttons"><button className="btn btn-outline" onClick={exportBackup}><Download size={16}/> Backup JSON</button><input aria-label="Pilih backup" type="file" accept=".json,application/json" ref={restoreInput} hidden onChange={e=>importBackup(e.target.files?.[0])}/><button className="btn btn-outline" disabled={!!userId} onClick={()=>restoreInput.current?.click()}><Upload size={16}/> Pulihkan Backup</button></div></section>
+      <section className="surface reset-card"><div><h3>Cadangkan Data OPSPIRY</h3><p>Unduh data sebagai JSON. Mode demo mendukung pemulihan backup setelah konfirmasi.</p></div><div className="backup-buttons"><button className="btn btn-outline" onClick={exportBackup}><Download size={16}/> Backup JSON</button><input aria-label="Pilih backup" type="file" accept=".json,application/json" ref={restoreInput} hidden onChange={e=>importBackup(e.target.files?.[0])}/><button className="btn btn-outline" disabled={!!userId} onClick={()=>restoreInput.current?.click()}><Upload size={16}/> Pulihkan Backup</button></div></section>
       {!userId&&<section className="surface reset-card"><div><h3>Reset Data Simulasi</h3><p>Hapus perubahan yang tersimpan di browser ini dan muat ulang data contoh.</p></div><button className="btn btn-danger-outline" onClick={()=>{if(confirm("Reset seluruh data demo di browser ini?")){setData(seedData());toastIt("Data demo berhasil direset");}}}><RefreshCw size={16}/> Reset data contoh</button></section>}
     </>}
-    <footer className="app-footer"><span>© 2026 PT. Bukit Sion Medikal · Sistem Operasional</span><span><span className="footer-live"/> {syncState}</span></footer>
+    <footer className="app-footer"><span>© 2026 OPSPIRY · Sistem Operasional</span><span><span className="footer-live"/> {syncState}</span></footer>
    </main></div>
    {toast&&<div className="toast" role="status"><CheckCircle2 size={19}/>{toast}<button onClick={()=>setToast("")} aria-label="Tutup pesan"><X size={16}/></button></div>}
-   {modal&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setModal(null);}}><section className="modal" role="dialog" aria-modal="true" aria-label={modalTitle[modal]}><header className="modal-header"><div><div className="section-kicker">OPERASIONAL BSM</div><h2>{modalTitle[modal]}</h2><p>Lengkapi data untuk menyimpan perubahan.</p></div><button className="icon-button" onClick={()=>setModal(null)} aria-label="Tutup formulir"><X size={21}/></button></header>
+   {modal&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setModal(null);}}><section className="modal" role="dialog" aria-modal="true" aria-label={modalTitle[modal]}><header className="modal-header"><div><div className="section-kicker">OPERASIONAL OPSPIRY</div><h2>{modalTitle[modal]}</h2><p>Lengkapi data untuk menyimpan perubahan.</p></div><button className="icon-button" onClick={()=>setModal(null)} aria-label="Tutup formulir"><X size={21}/></button></header>
      {(modal==="sale"||modal==="purchase")&&<form onSubmit={saveOrder} className="modal-form"><div className="form-grid"><label className="field full">{modal==="sale"?"Pelanggan":"Supplier"}<select required value={saleForm.partnerId} onChange={e=>setSaleForm(v=>({...v,partnerId:e.target.value}))}><option value="">Pilih {modal==="sale"?"pelanggan":"supplier"}</option>{data.partners.filter(p=>p.type===(modal==="sale"?"customer":"supplier")).map(p=><option key={p.id} value={p.id}>{p.code} · {p.name}</option>)}</select></label><label className="field full">Produk<select required value={saleForm.productId} onChange={e=>{const pid=e.target.value;const p=data.products.find(x=>x.id===pid);setSaleForm(v=>({...v,productId:pid,price:p?String(modal==="sale"?p.price:p.cost):""}));}}><option value="">Pilih produk</option>{data.products.map(p=><option key={p.id} value={p.id}>{p.code} · {p.name} (stok {productStock(data,p.id)})</option>)}</select></label><label className="field">Kuantitas<input required type="number" min="1" step="1" value={saleForm.qty} onChange={e=>setSaleForm(v=>({...v,qty:e.target.value}))}/></label><label className="field">Harga satuan (Rp)<input required type="number" min="1" step="1" value={saleForm.price} onChange={e=>setSaleForm(v=>({...v,price:e.target.value}))}/></label><label className="field">Pembayaran awal (Rp)<input required type="number" min="0" step="1" value={saleForm.paid} onChange={e=>setSaleForm(v=>({...v,paid:e.target.value}))}/></label><label className="field">Jatuh tempo<input required type="date" value={saleForm.due} onChange={e=>setSaleForm(v=>({...v,due:e.target.value}))}/></label><label className="field full">Keterangan<textarea rows={2} placeholder="Opsional" value={saleForm.note} onChange={e=>setSaleForm(v=>({...v,note:e.target.value}))}/></label></div><div className="form-total"><span>Estimasi total transaksi</span><strong>{money((Number(saleForm.qty)||0)*(Number(saleForm.price)||0))}</strong></div><div className="modal-actions"><button type="button" className="btn btn-outline" onClick={()=>setModal(null)}>Batal</button><button type="submit" className="btn btn-primary"><Check size={17}/> Simpan Transaksi</button></div></form>}
      {modal==="product"&&<form className="modal-form" onSubmit={saveProduct}><div className="form-grid"><label className="field full">Nama produk<input required value={productForm.name} onChange={e=>setProductForm(v=>({...v,name:e.target.value}))} placeholder="Contoh: Beras Premium 5kg"/></label><label className="field">Kategori<input value={productForm.category} onChange={e=>setProductForm(v=>({...v,category:e.target.value}))}/></label><label className="field">Satuan<input value={productForm.unit} onChange={e=>setProductForm(v=>({...v,unit:e.target.value}))}/></label><label className="field">Harga jual (Rp)<input required type="number" min="0" value={productForm.price} onChange={e=>setProductForm(v=>({...v,price:e.target.value}))}/></label><label className="field">Harga beli (Rp)<input required type="number" min="0" value={productForm.cost} onChange={e=>setProductForm(v=>({...v,cost:e.target.value}))}/></label><label className="field">Stok awal<input required type="number" min="0" step="1" value={productForm.opening} onChange={e=>setProductForm(v=>({...v,opening:e.target.value}))}/></label><label className="field">Stok minimum<input required type="number" min="0" step="1" value={productForm.min} onChange={e=>setProductForm(v=>({...v,min:e.target.value}))}/></label></div><div className="modal-actions"><button type="button" className="btn btn-outline" onClick={()=>setModal(null)}>Batal</button><button className="btn btn-primary" type="submit">Simpan Produk</button></div></form>}
      {(modal==="customer"||modal==="supplier")&&<form className="modal-form" onSubmit={savePartner}><div className="form-grid"><label className="field full">Nama {modal==="customer"?"pelanggan":"supplier"}<input required value={partnerForm.name} onChange={e=>setPartnerForm(v=>({...v,name:e.target.value}))}/></label><label className="field">Nomor kontak<input value={partnerForm.phone} onChange={e=>setPartnerForm(v=>({...v,phone:e.target.value}))}/></label><label className="field">Kota<input value={partnerForm.city} onChange={e=>setPartnerForm(v=>({...v,city:e.target.value}))}/></label></div><div className="modal-actions"><button className="btn btn-outline" type="button" onClick={()=>setModal(null)}>Batal</button><button className="btn btn-primary" type="submit">Simpan Mitra</button></div></form>}
