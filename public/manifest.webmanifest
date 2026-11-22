@@ -1,24 +1,24 @@
 {
-  "name": "PT. Bukit Sion Medikal — Sistem Operasional",
-  "short_name": "BSM",
-  "description": "Sistem operasional PT. Bukit Sion Medikal untuk penjualan, pembelian, persediaan, dan laporan.",
+  "name": "OPSPIRY — Sistem Operasional",
+  "short_name": "OPSPIRY",
+  "description": "Sistem OPSPIRY untuk penjualan, pembelian, persediaan, dan laporan.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#f5f9ff",
-  "theme_color": "#0759b4",
+  "background_color": "#fcf8f8",
+  "theme_color": "#b10c19",
   "lang": "id",
   "icons": [
     {
-      "src": "/logo.svg",
+      "src": "/opspiry-mark.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
     },
     {
-      "src": "/bsm-logo.png",
-      "sizes": "128x128",
-      "type": "image/png",
+      "src": "/opspiry-mark.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
       "purpose": "any"
     }
   ]
