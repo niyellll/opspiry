@@ -1,12 +1,12 @@
 {
-  "name": "OPSPIRY — Distribution Operating System",
-  "short_name": "OPSPIRY",
-  "description": "Sistem OPSPIRY untuk penjualan, pembelian, persediaan, dan laporan.",
+  "name": "PT. BUKIT SION MEDIKAL — Distribution Operating System",
+  "short_name": "BSM",
+  "description": "Sistem PT. BUKIT SION MEDIKAL untuk penjualan, pembelian, persediaan, dan laporan.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#fcf8f8",
-  "theme_color": "#b30d1b",
+  "background_color": "#f5f9fd",
+  "theme_color": "#07549b",
   "lang": "id",
   "icons": [
     {
