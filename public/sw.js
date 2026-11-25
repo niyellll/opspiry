@@ -1,4 +1,4 @@
-const CACHE = "bsm-shell-v5";
+const CACHE = "bsm-shell-v6";
 const SHELL_ASSETS = ["/", "/bsm-logo.png", "/icon-192.png", "/icon-512.png", "/manifest.webmanifest"];
 
 self.addEventListener("install", event => {
@@ -7,7 +7,7 @@ self.addEventListener("install", event => {
 
 self.addEventListener("activate", event => {
   event.waitUntil(caches.keys().then(names => Promise.all(names
-    .filter(name => name !== CACHE && (name.startsWith("opspiry-shell-") || name === "bsm-shell-v3"))
+    .filter(name => name !== CACHE && (name.startsWith("opspiry-shell-") || name.startsWith("bsm-shell-")))
     .map(name => caches.delete(name)))).then(() => self.clients.claim()));
 });
 

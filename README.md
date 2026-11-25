@@ -53,3 +53,16 @@ Never use a service_role / secret API key in public frontend env vars. Do not po
 ## Deployment
 
 Link this repository to a **separate OPSPIRY** Vercel project. No BBM/GPP/CSB Vercel deployment or Supabase database should be reused.
+
+## Penerimaan barang dan sinkronisasi cloud
+
+Dari **Pembelian → Penerimaan Barang**, pilih **Terima barang** dan masukkan jumlah fisik yang diterima. Penerimaan bisa sebagian hingga jumlah pesanan terpenuhi. Stok dan riwayat mutasi berubah setelah penerimaan tersimpan. Pesanan sebelum fitur ini tetap dihitung sudah masuk stok, sesuai pencatatan lama.
+
+Untuk cloud, rilis ini memerlukan migrasi `supabase/migrations/20261125130825_stock_receiving_and_revision.sql` pada Supabase Postgres 16 atau lebih baru. Workspace tetap per akun. Dua perangkat pada akun yang sama menggunakan revisi yang sama sampai salah satu menyimpan. Saat terjadi konflik, aplikasi memuat data terbaru dan mempertahankan isian yang masih terbuka. Tombol **Coba simpan lagi** mengirim ulang ID perubahan yang sama ketika respons cloud belum terkonfirmasi.
+
+### Rilis cloud
+
+1. Cocokkan project ref Supabase di konfigurasi deployment dengan proyek khusus aplikasi ini. Uji terlebih dahulu di lingkungan terisolasi. Untuk database kosong, pasang skema dasar `supabase/schema.sql` sebelum migrasi.
+2. Ambil backup sebelum cutover dan pastikan bisa dipulihkan. Jadwalkan cutover skema dan aplikasi bersama. Setelah migrasi, klien lama kehilangan akses tulis langsung sehingga perangkat harus memuat versi aplikasi terbaru.
+3. Setelah cutover, uji dua sesi pada akun uji yang sama, penjualan melebihi stok, serta penerimaan sebagian dan penuh. Periksa saldo stok dan riwayat mutasi sebelum pemakaian harian.
+4. Jika cutover gagal, jeda penulisan cloud dan ambil snapshot database terbaru sebelum tindakan pemulihan. Bila transaksi sudah masuk melalui penerimaan, pertahankan data dan perbaiki ke depan dengan klien yang kompatibel. Klien lama menghitung pembelian baru sebagai stok masuk, sehingga rollback aplikasi saja tidak kompatibel dengan data tersebut.

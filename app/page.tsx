@@ -1,13 +1,14 @@
 "use client";
 import { useEffect, useId, useRef, useState } from "react";
 import { Activity, ArrowDownLeft, ArrowRight, BarChart3, Boxes, Building2, CalendarDays, Check, CheckCircle2, ChevronDown, CircleDollarSign, Cloud, Download, LayoutDashboard, LogOut, Menu, Package, Printer, Plus, RefreshCw, Search, Settings2, ShoppingBag, ShoppingCart, Smartphone, TrendingUp, Truck, Upload, Users, Wallet, X } from "lucide-react";
-import { addDays, amount, csvDownload, emptyData, id, money, num, productStock, remaining, seedData, shortDate, today, type AppData, type Delivery, type Order, type Partner, type Product } from "@/lib/data";
-import { cloudConfigured, getCloud, loadRemote, saveRemote } from "@/lib/cloud";
+import { addDays, amount, csvDownload, emptyData, id, money, num, productStock, receivedQty, remaining, stockMovements, seedData, shortDate, today, type AppData, type Delivery, type Order, type Partner, type Product, type Receipt } from "@/lib/data";
+import { cloudConfigured, getCloud, loadRemote, saveRemote, StockValidationError, SyncConflict } from "@/lib/cloud";
 import InvoicePrint from "@/components/InvoicePrint";
 import { agingSummary } from "@/lib/reporting";
 
 type Page = "Dashboard" | "Penjualan" | "Pembelian" | "Persediaan" | "Hutang & Piutang" | "Pelanggan" | "Supplier" | "Produk" | "Distribusi" | "Laporan" | "Pengaturan";
-type Modal = "sale" | "purchase" | "product" | "customer" | "supplier" | "delivery" | "adjustment" | null;
+type Modal = "sale" | "purchase" | "product" | "customer" | "supplier" | "delivery" | "adjustment" | "receipt" | null;
+type PendingSave = { revision: number; payload: AppData; mutationId: string; onSaved: () => void };
 const navigation = [
  {group:"UTAMA",items:[{name:"Dashboard",icon:LayoutDashboard},{name:"Penjualan",icon:ShoppingCart},{name:"Pembelian",icon:ShoppingBag},{name:"Persediaan",icon:Boxes},{name:"Hutang & Piutang",icon:Wallet}]},
  {group:"OPERASIONAL",items:[{name:"Pelanggan",icon:Users},{name:"Supplier",icon:Building2},{name:"Produk",icon:Package},{name:"Distribusi",icon:Truck}]},
@@ -43,6 +44,7 @@ export default function Home() {
  const [page,setPage]=useState<Page>("Dashboard");
  const [data,setData]=useState<AppData>(()=>seedData());
  const [ready,setReady]=useState(false);
+ const [startupFailed,setStartupFailed]=useState(false);
  const [modal,setModal]=useState<Modal>(null);
  const [search,setSearch]=useState("");
  const [toast,setToast]=useState("");
@@ -64,7 +66,14 @@ export default function Home() {
  const [syncState,setSyncState]=useState("Data tersimpan di browser");
  const [expandedSetting,setExpandedSetting]=useState<"cloud"|"install"|null>(null);
  const [installPrompt,setInstallPrompt]=useState<null|{prompt:()=>Promise<void>;userChoice:Promise<{outcome:string}>}>(null);
- const dataRef=useRef(data);
+ const [receiptOrderId,setReceiptOrderId]=useState("");
+ const [receiptQuantity,setReceiptQuantity]=useState("");
+ const [saving,setSaving]=useState(false);
+ const [retrySave,setRetrySave]=useState<PendingSave|null>(null);
+ const revision=useRef<number|null>(null);
+ const savingRef=useRef(false);
+ const writesLocked=saving || !!retrySave || (!!userId && revision.current===null);
+
  const restoreInput=useRef<HTMLInputElement|null>(null);
  function exportBackup(){
   const payload={format:"opspiry-backup",version:1,createdAt:new Date().toISOString(),data};
@@ -81,35 +90,108 @@ export default function Home() {
    const parsed=JSON.parse(await file.text());
    if(parsed?.format!=="opspiry-backup"||parsed?.version!==1)throw Error("Format backup tidak dikenali.");
    const d=parsed.data as AppData;
-   if(!d||!Array.isArray(d.products)||!Array.isArray(d.partners)||!Array.isArray(d.orders)||!Array.isArray(d.deliveries)||!Array.isArray(d.adjustments))throw Error("Struktur backup tidak lengkap.");
+   if(!d||!Array.isArray(d.products)||!Array.isArray(d.partners)||!Array.isArray(d.orders)||!Array.isArray(d.deliveries)||!Array.isArray(d.adjustments)||(d.receipts!==undefined&&!Array.isArray(d.receipts)))throw Error("Struktur backup tidak lengkap.");
    if(d.products.length>10000||d.partners.length>20000||d.orders.length>100000||d.deliveries.length>100000||d.adjustments.length>100000)throw Error("Jumlah data terlalu besar.");
    if(d.products.some(p=>typeof p.id!=="string"||typeof p.name!=="string"||!Number.isFinite(p.opening)||!Number.isFinite(p.price)||!Number.isFinite(p.cost))||d.orders.some(o=>typeof o.id!=="string"||!["sale","purchase"].includes(o.kind)||!Number.isFinite(o.qty)||!Number.isFinite(o.price)||!Number.isFinite(o.paid)))throw Error("Isi backup tidak valid.");
+   if(d.receipts?.some(r=>!r || typeof r.id!=="string" || !Number.isSafeInteger(r.qty) || r.qty<1 || typeof r.date!=="string" || !d.orders.some(o=>o.id===r.orderId && o.kind==="purchase" && o.requiresReceipt)) ||
+      d.orders.some(o=>o.requiresReceipt && (o.kind!=="purchase" || receivedQty(d,o)>o.qty))) throw Error("Data penerimaan backup tidak valid.");
    if(!window.confirm("Impor backup akan mengganti seluruh data demo saat ini. Lanjutkan?"))return;
    setData(d);toastIt("Backup berhasil dipulihkan.");
   }catch(error){toastIt(error instanceof Error?error.message:"Gagal membaca backup.");}
   finally{if(restoreInput.current)restoreInput.current.value="";}
  }
- useEffect(()=>{dataRef.current=data;},[data]);
+ async function refreshWorkspace(accountId: string) {
+  const remote=await loadRemote(accountId);
+  revision.current=remote?.revision ?? 0;
+  setData(remote?.payload ?? emptyData);
+  setSyncState("Data cloud terkini");
+ }
+
  useEffect(()=>{
-  try { const raw=localStorage.getItem("opspiry_demo_v1");if(raw){const parsed=JSON.parse(raw);if(parsed&&Array.isArray(parsed.products)&&Array.isArray(parsed.orders))setData(parsed);} } catch{}
-  setReady(true);
-  const cloud=getCloud();
-  if(cloud){cloud.auth.getUser().then(async ({data:auth})=>{
-    if(!auth.user) return;
-    try {const remote=await loadRemote(auth.user.id);setUserId(auth.user.id);setUserEmail(auth.user.email||"");setData(remote||emptyData);setSyncState("Cloud PT. BUKIT SION MEDIKAL aktif");}
-    catch(e){setCloudError(e instanceof Error?e.message:"Gagal memuat data cloud");}
-   });}
+  let active=true;
+  async function initialize() {
+   const cloud=getCloud();
+   const session=cloud ? await cloud.auth.getSession() : null;
+   if(!active) return;
+   if(session?.error){setStartupFailed(true);return;}
+   const account=session?.data.session?.user;
+   if(account) {
+    setUserId(account.id);
+    setUserEmail(account.email ?? "");
+    setData(emptyData);
+    try {await refreshWorkspace(account.id);}
+    catch {setSyncState("Data cloud belum dapat dimuat");}
+   } else {
+    try {
+     const stored=localStorage.getItem("opspiry_demo_v1");
+     if(stored) setData(JSON.parse(stored));
+    } catch {}
+   }
+   if(active) setReady(true);
+  }
+  void initialize().catch(()=>{if(active)setStartupFailed(true);});
   const onInstall=(event: Event)=>{event.preventDefault();setInstallPrompt(event as unknown as {prompt:()=>Promise<void>;userChoice:Promise<{outcome:string}>});};
   window.addEventListener("beforeinstallprompt",onInstall);
-  return ()=>window.removeEventListener("beforeinstallprompt",onInstall);
+  return ()=>{active=false;window.removeEventListener("beforeinstallprompt",onInstall);};
  },[]);
  useEffect(()=>{
-   if(!ready) return;
-   if(!userId){localStorage.setItem("opspiry_demo_v1",JSON.stringify(data));setSyncState("Data tersimpan di browser");return;}
-   setSyncState("Menyinkronkan perubahan…");
-   const timer=setTimeout(()=>{saveRemote(userId,data).then(()=>setSyncState("Tersimpan di cloud")).catch(e=>{setSyncState("Sinkronisasi gagal");setCloudError(e.message);});},650);
-   return ()=>clearTimeout(timer);
+  if(ready&&!userId) localStorage.setItem("opspiry_demo_v1",JSON.stringify(data));
  },[data,ready,userId]);
+
+ async function sendChange(change: PendingSave) {
+  if(savingRef.current || !userId) return;
+  savingRef.current=true;
+  setSaving(true);
+  setSyncState("Menyimpan ke cloud…");
+  try {
+   const saved=await saveRemote(change.revision,change.payload,change.mutationId);
+   revision.current=saved.revision;
+   setData(saved.payload);
+   setRetrySave(null);
+   setSyncState("Tersimpan di cloud");
+   change.onSaved();
+  } catch(error) {
+   if(error instanceof SyncConflict) {
+    setRetrySave(null);
+    revision.current=null;
+    try {
+     await refreshWorkspace(userId);
+     toastIt("Data berubah di perangkat lain. Data terbaru sudah dimuat. Periksa isian lalu simpan lagi.");
+    } catch {setSyncState("Data cloud belum dapat dimuat");}
+   } else if(error instanceof StockValidationError) {
+    setRetrySave(null);
+    setSyncState("Perubahan ditolak server");
+    toastIt(error.message);
+   } else {
+    setRetrySave(change);
+    setSyncState("Penyimpanan belum terkonfirmasi");
+   }
+  } finally {
+   savingRef.current=false;
+   setSaving(false);
+  }
+ }
+
+ function commitChange(update: (current: AppData) => AppData, onSaved: () => void) {
+  if(!ready || cloudBusy || writesLocked || savingRef.current) return;
+  if(!userId) {
+   setData(update);
+   onSaved();
+   return;
+  }
+  if(revision.current!==null) {
+   void sendChange({revision:revision.current,payload:update(data),mutationId:crypto.randomUUID(),onSaved});
+  }
+ }
+
+ async function retryWorkspace() {
+  if(!userId || savingRef.current) return;
+  savingRef.current=true;
+  setSaving(true);
+  try {await refreshWorkspace(userId);}
+  catch {setSyncState("Data cloud belum dapat dimuat");}
+  finally {savingRef.current=false;setSaving(false);}
+ }
  useEffect(()=>{setSearch("");window.scrollTo({top:0,behavior:"smooth"});},[page]);
  useEffect(()=>{if(toast){const t=setTimeout(()=>setToast(""),3800);return()=>clearTimeout(t);}},[toast]);
  useEffect(()=>{
@@ -147,8 +229,9 @@ export default function Home() {
   status,count:data.deliveries.filter(delivery=>delivery.status===status).length,
  }));
  const toastIt=(msg:string)=>setToast(msg);
- const modalTitle:Record<Exclude<Modal,null>,string>={sale:"Buat Faktur Penjualan",purchase:"Buat Pembelian",product:"Tambah Produk Baru",customer:"Tambah Pelanggan",supplier:"Tambah Supplier",delivery:"Buat Surat Jalan",adjustment:"Penyesuaian Stok"};
+ const modalTitle:Record<Exclude<Modal,null>,string>={sale:"Buat Faktur Penjualan",purchase:"Buat Pembelian",product:"Tambah Produk Baru",customer:"Tambah Pelanggan",supplier:"Tambah Supplier",delivery:"Buat Surat Jalan",adjustment:"Penyesuaian Stok",receipt:"Terima Barang"};
  function openModal(type: Exclude<Modal,null>) {
+  if(writesLocked) return;
   setModal(type);setPayOrder(null);
   setSaleForm({...blankSale,due:addDays(today(),14)});
   setPartnerForm(blankPartner);setProductForm(blankProduct);
@@ -159,42 +242,58 @@ export default function Home() {
   event.preventDefault();if(!modal||!(modal==="sale"||modal==="purchase"))return;
   const qty=Number(saleForm.qty),price=Number(saleForm.price),paid=Number(saleForm.paid);
   if(!saleForm.partnerId||!saleForm.productId||!Number.isFinite(qty)||qty<=0||!Number.isInteger(qty)||!Number.isFinite(price)||price<=0||!Number.isFinite(paid)||paid<0||paid>qty*price){toastIt("Periksa produk, mitra, kuantitas, harga dan pembayaran.");return;}
-  if(modal==="sale"&&qty>productStock(data,saleForm.productId)){toastIt("Stok tidak mencukupi. Periksa persediaan.");return;}
+  if(!userId&&modal==="sale"&&qty>productStock(data,saleForm.productId)){toastIt("Stok tidak mencukupi. Periksa persediaan.");return;}
   const kind=modal, prefix=kind==="sale"?"INV":"PO";
   const number=prefix+"-"+new Date().getFullYear().toString().slice(2)+"-"+String(data.orders.filter(o=>o.kind===kind).length+1).padStart(5,"0");
-  const record:Order={id:id(),number,kind,date:today(),partnerId:saleForm.partnerId,productId:saleForm.productId,qty,price,paid,due:saleForm.due,note:saleForm.note.trim()};
-  setData(d=>({...d,orders:[record,...d.orders]}));setModal(null);toastIt("Transaksi "+number+" berhasil disimpan");
+  const record:Order={id:id(),number,kind,date:today(),partnerId:saleForm.partnerId,productId:saleForm.productId,qty,price,paid,due:saleForm.due,note:saleForm.note.trim(),...(kind==="purchase"?{requiresReceipt:true as const}:{})};
+  commitChange(d=>({...d,orders:[record,...d.orders]}),()=>{setModal(null);toastIt("Transaksi "+number+" berhasil disimpan");});
  }
  function saveProduct(event:React.FormEvent){
   event.preventDefault();const price=Number(productForm.price),cost=Number(productForm.cost),opening=Number(productForm.opening),min=Number(productForm.min);
   if(!productForm.name.trim()||!Number.isFinite(price)||!Number.isFinite(cost)||price<0||cost<0||!Number.isFinite(opening)||opening<0||!Number.isInteger(opening)||!Number.isInteger(min)||min<0){toastIt("Isi detail produk dengan benar.");return;}
   const record:Product={id:id(),code:"PRD-"+String(data.products.length+1).padStart(3,"0"),name:productForm.name.trim(),category:productForm.category,unit:productForm.unit,price,cost,opening,min};
-  setData(d=>({...d,products:[record,...d.products]}));setModal(null);toastIt("Produk berhasil ditambahkan");
+  commitChange(d=>({...d,products:[record,...d.products]}),()=>{setModal(null);toastIt("Produk berhasil ditambahkan");});
  }
  function savePartner(event:React.FormEvent){
   event.preventDefault();if(!partnerForm.name.trim())return;
   const kind=modal==="supplier"?"supplier":"customer";
   const record:Partner={id:id(),code:(kind==="supplier"?"SUP-":"CUS-")+String(data.partners.filter(p=>p.type===kind).length+1).padStart(3,"0"),name:partnerForm.name.trim(),phone:partnerForm.phone.trim(),city:partnerForm.city.trim(),type:kind};
-  setData(d=>({...d,partners:[record,...d.partners]}));setModal(null);toastIt("Data mitra berhasil ditambahkan");
+  commitChange(d=>({...d,partners:[record,...d.partners]}),()=>{setModal(null);toastIt("Data mitra berhasil ditambahkan");});
  }
  function saveDelivery(event:React.FormEvent){
   event.preventDefault();if(!deliveryForm.orderId||!deliveryForm.destination.trim()){toastIt("Pilih faktur dan isi tujuan pengiriman.");return;}
   const record:Delivery={id:id(),orderId:deliveryForm.orderId,driver:deliveryForm.driver.trim(),vehicle:deliveryForm.vehicle.trim(),destination:deliveryForm.destination.trim(),date:deliveryForm.date,status:"Dijadwalkan"};
-  setData(d=>({...d,deliveries:[record,...d.deliveries]}));setModal(null);toastIt("Surat jalan ditambahkan");
+  commitChange(d=>({...d,deliveries:[record,...d.deliveries]}),()=>{setModal(null);toastIt("Surat jalan ditambahkan");});
  }
  function saveAdjustment(event:React.FormEvent){
   event.preventDefault();const qty=Number(adjustForm.qty);
-  if(!adjustForm.productId||!Number.isInteger(qty)||qty===0||productStock(data,adjustForm.productId)+qty<0){toastIt("Penyesuaian stok tidak valid.");return;}
-  setData(d=>({...d,adjustments:[{id:id(),productId:adjustForm.productId,qty,note:adjustForm.note.trim(),date:today()},...d.adjustments]}));setModal(null);toastIt("Stok berhasil disesuaikan");
+  if(!adjustForm.productId||!Number.isInteger(qty)||qty===0||(!userId&&productStock(data,adjustForm.productId)+qty<0)){toastIt("Penyesuaian stok tidak valid.");return;}
+  const adjustment={id:id(),productId:adjustForm.productId,qty,note:adjustForm.note.trim(),date:today()};
+  commitChange(d=>({...d,adjustments:[adjustment,...d.adjustments]}),()=>{setModal(null);toastIt("Stok berhasil disesuaikan");});
  }
  function settle(event:React.FormEvent){
   event.preventDefault();if(!payOrder)return;
   const order=data.orders.find(o=>o.id===payOrder);const value=Number(payAmount);
   if(!order||!Number.isFinite(value)||value<=0||value>remaining(order)){toastIt("Nominal pelunasan tidak valid.");return;}
   const payment={id:id(),orderId:payOrder,date:today(),amount:value,method:payMethod,reference:payReference.trim()};
-  setData(d=>({...d,orders:d.orders.map(o=>o.id===payOrder?{...o,paid:Math.round((o.paid+value)*100)/100}:o),payments:[...(d.payments||[]),payment]}));
-  setPayOrder(null);setPayReference("");toastIt("Pembayaran berhasil dicatat dan masuk riwayat");
+  commitChange(d=>({...d,orders:d.orders.map(o=>o.id===payOrder?{...o,paid:Math.round((o.paid+value)*100)/100}:o),payments:[...(d.payments||[]),payment]}),()=>{setPayOrder(null);setPayReference("");toastIt("Pembayaran berhasil dicatat dan masuk riwayat");});
  }
+ const receiptOrder=data.orders.find(order=>order.id===receiptOrderId);
+ const receiptRemaining=receiptOrder ? receiptOrder.qty-receivedQty(data,receiptOrder) : 0;
+ function saveReceipt(event: React.FormEvent) {
+  event.preventDefault();
+  const qty=Number(receiptQuantity);
+  if(!receiptOrder?.requiresReceipt || !Number.isSafeInteger(qty) || qty<1 || qty>receiptRemaining) {
+   toastIt("Jumlah penerimaan harus sesuai sisa pembelian.");
+   return;
+  }
+  const receipt: Receipt={id:id(),orderId:receiptOrder.id,qty,date:today()};
+  commitChange(d=>({...d,receipts:[...(d.receipts ?? []),receipt]}),()=>{
+   setModal(null);
+   toastIt("Penerimaan dicatat dan stok bertambah.");
+  });
+ }
+
  function exportActive(){
   let header:string[]=[];let rows:(string|number)[][]=[];
   if(page==="Penjualan"||page==="Pembelian"||page==="Hutang & Piutang"||page==="Laporan"||page==="Dashboard"){
@@ -210,12 +309,15 @@ export default function Home() {
   setCloudError("");setCloudBusy(true);
   try{
    if(signUp){const {error}=await cloud.auth.signUp({email:authForm.email,password:authForm.password});if(error)throw error;toastIt("Pendaftaran dikirim. Konfirmasi email jika diminta.");}
-   else {const {data:result,error}=await cloud.auth.signInWithPassword({email:authForm.email,password:authForm.password});if(error)throw error;if(result.user){const remote=await loadRemote(result.user.id);setData(remote||emptyData);setUserId(result.user.id);setUserEmail(result.user.email||"");setSyncState("Cloud PT. BUKIT SION MEDIKAL aktif");toastIt("Berhasil masuk ke ruang kerja cloud");}}
+   else {const {data:result,error}=await cloud.auth.signInWithPassword({email:authForm.email,password:authForm.password});if(error)throw error;if(result.user){revision.current=null;setData(emptyData);setUserId(result.user.id);setUserEmail(result.user.email||"");setSyncState("Data cloud belum dapat dimuat");await refreshWorkspace(result.user.id);toastIt("Berhasil masuk ke ruang kerja cloud");}}
   }catch(e){setCloudError(e instanceof Error?e.message:"Gagal login");}finally{setCloudBusy(false);}
  }
- async function signOut(){const cloud=getCloud();if(cloud)await cloud.auth.signOut();setUserId(null);setUserEmail("");try{const raw=localStorage.getItem("opspiry_demo_v1");setData(raw?JSON.parse(raw):seedData());}catch{setData(seedData());}toastIt("Keluar dari cloud. Mode demo aktif.");}
- const rowOrder=(o:Order)=><tr key={o.id}><td><strong className="ref">{o.number}</strong><small>{shortDate(o.date)}</small></td><td><strong>{findPartner(o.partnerId)}</strong><small>{findProduct(o.productId)} · {num(o.qty)} unit</small></td><td className="numeric">{money(amount(o))}</td><td className="numeric">{money(remaining(o))}</td><td>{remaining(o)===0?pill("Lunas","good"):o.due<today()?pill("Terlambat","danger"):pill("Belum lunas","warn")}</td><td className="center"><div className="action-pair"><button className="icon-button" aria-label={"Cetak faktur "+o.number} title="Cetak faktur" onClick={()=>setPrintOrder(o.id)}><Printer size={18}/></button><button className="icon-button" title="Catat pembayaran" aria-label={"Catat pembayaran "+o.number} onClick={()=>{setPayOrder(o.id);setPayAmount(String(remaining(o)));setPayMethod("Transfer Bank");setPayReference("");}} disabled={remaining(o)===0}><CircleDollarSign size={18}/></button></div></td></tr>;
+ async function signOut(){if(savingRef.current||retrySave)return;const cloud=getCloud();if(cloud){const {error}=await cloud.auth.signOut();if(error){setCloudError(error.message);return;}}revision.current=null;setSyncState("Data tersimpan di browser");setUserId(null);setUserEmail("");try{const raw=localStorage.getItem("opspiry_demo_v1");setData(raw?JSON.parse(raw):seedData());}catch{setData(seedData());}toastIt("Keluar dari cloud. Mode demo aktif.");}
+ const rowOrder=(o:Order)=><tr key={o.id}><td><strong className="ref">{o.number}</strong><small>{shortDate(o.date)}</small></td><td><strong>{findPartner(o.partnerId)}</strong><small>{findProduct(o.productId)} · {num(o.qty)} unit</small></td><td className="numeric">{money(amount(o))}</td><td className="numeric">{money(remaining(o))}</td><td>{remaining(o)===0?pill("Lunas","good"):o.due<today()?pill("Terlambat","danger"):pill("Belum lunas","warn")}</td><td className="center"><div className="action-pair"><button className="icon-button" aria-label={"Cetak faktur "+o.number} title="Cetak faktur" onClick={()=>setPrintOrder(o.id)}><Printer size={18}/></button><button className="icon-button" title="Catat pembayaran" aria-label={"Catat pembayaran "+o.number} onClick={()=>{setPayOrder(o.id);setPayAmount(String(remaining(o)));setPayMethod("Transfer Bank");setPayReference("");}} disabled={writesLocked||remaining(o)===0}><CircleDollarSign size={18}/></button></div></td></tr>;
  const tableCard=(heading:string,headings:string[],body:React.ReactNode,side?:React.ReactNode)=><section className="surface table-surface"><div className="section-header"><div><h3>{heading}</h3><p>Data diperbarui berdasarkan aktivitas yang dicatat</p></div>{side}</div><div className="table-scroll"><table><thead><tr>{headings.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{body}</tbody></table></div></section>;
+ if(!ready) return <main className="content">
+  {startupFailed?<><p role="alert">Sesi cloud belum dapat diperiksa.</p><button className="btn btn-outline" onClick={()=>location.reload()}>Coba lagi</button></>:<p role="status">Memuat ruang kerja…</p>}
+ </main>;
  return <div className="shell os-shell">
   <div className="main-panel">
    <header className="os-header">
@@ -288,12 +390,19 @@ export default function Home() {
     </>}
     {(page==="Penjualan"||page==="Pembelian")&&<>
       <div className="compact-stats"><div><span>Total {page}</span><strong>{money(page==="Penjualan"?sales:purchase)}</strong></div><div><span>Jumlah Dokumen</span><strong>{page==="Penjualan"?ordersSale.length:ordersPurchase.length}</strong></div><div><span>Belum Lunas</span><strong>{money(page==="Penjualan"?receivables:payables)}</strong></div></div>
+      {page==="Pembelian"&&tableCard("Penerimaan Barang",["Pembelian","Produk","Dipesan","Diterima","Sisa","Aksi"],ordersPurchase.filter(o=>matches(o.number,findPartner(o.partnerId),findProduct(o.productId))).map(o=>{
+       const received=receivedQty(data,o);
+       const outstanding=o.qty-received;
+       return <tr key={o.id}><td><strong>{o.number}</strong><small>{findPartner(o.partnerId)}</small></td><td>{findProduct(o.productId)}</td><td>{num(o.qty)}</td><td>{num(received)}</td><td>{num(outstanding)}</td><td>{outstanding>0?<button type="button" className="btn btn-outline" disabled={writesLocked} onClick={()=>{
+        setReceiptOrderId(o.id);setReceiptQuantity(String(outstanding));openModal("receipt");
+       }}>Terima barang</button>:<span>{o.requiresReceipt?"Selesai":"Pembelian lama"}</span>}</td></tr>;
+      }))}
       {tableCard("Daftar "+page,["No Dokumen","Mitra / Produk","Nilai Transaksi","Sisa Tagihan","Status","Bayar"],data.orders.filter(o=>o.kind===(page==="Penjualan"?"sale":"purchase")&&matches(o.number,findPartner(o.partnerId),findProduct(o.productId))).map(rowOrder))}
     </>}
     {page==="Persediaan"&&<>
       <div className="compact-stats"><div><span>Nilai Persediaan</span><strong>{money(inventoryWorth)}</strong></div><div><span>Jumlah SKU</span><strong>{data.products.length}</strong></div><div><span>Stok Minimum</span><strong className={lowStock?"danger-text":""}>{lowStock} produk</strong></div></div>
       {tableCard("Posisi Stok Produk",["Kode","Nama Produk","Kategori","Stok Tersedia","Batas Minimum","Status"],data.products.filter(p=>matches(p.code,p.name,p.category)).map(p=><tr key={p.id}><td className="ref">{p.code}</td><td><strong>{p.name}</strong><small>{p.unit}</small></td><td>{p.category}</td><td className="numeric strong-cell">{num(productStock(data,p.id))}</td><td className="numeric">{num(p.min)}</td><td>{productStock(data,p.id)<=p.min?pill("Stok rendah","danger"):pill("Aman","good")}</td></tr>))}
-      {tableCard("Riwayat Perubahan Stok",["Tanggal","Produk","Jenis","Jumlah","Keterangan"],[...data.orders.map(o=>({id:o.id,date:o.date,product:o.productId,kind:o.kind==="purchase"?"Barang Masuk":"Barang Keluar",qty:o.kind==="purchase"?o.qty:-o.qty,note:o.number})),...data.adjustments.map(a=>({id:a.id,date:a.date,product:a.productId,kind:"Penyesuaian",qty:a.qty,note:a.note}))].sort((a,b)=>b.date.localeCompare(a.date)).filter(a=>matches(findProduct(a.product),a.note,a.kind)).map(a=><tr key={a.id}><td>{shortDate(a.date)}</td><td>{findProduct(a.product)}</td><td>{a.kind}</td><td className={"numeric "+(a.qty>0?"positive-text":"danger-text")}>{a.qty>0?"+":""}{num(a.qty)}</td><td>{a.note||"—"}</td></tr>))}
+      {tableCard("Riwayat Perubahan Stok",["Tanggal","Produk","Jenis","Jumlah","Keterangan"],stockMovements(data).sort((a,b)=>b.date.localeCompare(a.date)).filter(a=>matches(findProduct(a.product),a.note,a.kind)).map(a=><tr key={a.id}><td>{shortDate(a.date)}</td><td>{findProduct(a.product)}</td><td>{a.kind}</td><td className={"numeric "+(a.qty>0?"positive-text":"danger-text")}>{a.qty>0?"+":""}{num(a.qty)}</td><td>{a.note||"—"}</td></tr>))}
     </>}
     {page==="Hutang & Piutang"&&<>
       <div className="compact-stats"><div><span>Piutang Belum Dibayar</span><strong>{money(receivables)}</strong></div><div><span>Hutang Belum Dibayar</span><strong>{money(payables)}</strong></div><div><span>Tagihan Terbuka</span><strong>{data.orders.filter(o=>remaining(o)>0).length}</strong></div></div>
@@ -310,7 +419,7 @@ export default function Home() {
     </>}
     {page==="Distribusi"&&<>
       <div className="compact-stats"><div><span>Total Pengiriman</span><strong>{data.deliveries.length}</strong></div><div><span>Dalam Perjalanan</span><strong>{data.deliveries.filter(d=>d.status==="Dalam Perjalanan").length}</strong></div><div><span>Sudah Diterima</span><strong>{data.deliveries.filter(d=>d.status==="Terkirim").length}</strong></div></div>
-      {tableCard("Monitoring Pengiriman",["Faktur","Pelanggan","Pengemudi / Kendaraan","Tujuan","Tanggal","Status / Aksi"],data.deliveries.filter(d=>matches(d.destination,d.driver,d.vehicle,data.orders.find(o=>o.id===d.orderId)?.number||"")).map(d=><tr key={d.id}><td className="ref">{data.orders.find(o=>o.id===d.orderId)?.number||"—"}</td><td>{findPartner(data.orders.find(o=>o.id===d.orderId)?.partnerId||"")}</td><td><strong>{d.driver||"—"}</strong><small>{d.vehicle||"—"}</small></td><td>{d.destination}</td><td>{shortDate(d.date)}</td><td><select className="table-select" aria-label={"Status pengiriman "+d.id} value={d.status} onChange={e=>{const status=e.target.value as Delivery["status"];setData(v=>({...v,deliveries:v.deliveries.map(x=>x.id===d.id?{...x,status}:x)}));toastIt("Status pengiriman diperbarui");}}><option>Dijadwalkan</option><option>Dalam Perjalanan</option><option>Terkirim</option></select></td></tr>))}
+      {tableCard("Monitoring Pengiriman",["Faktur","Pelanggan","Pengemudi / Kendaraan","Tujuan","Tanggal","Status / Aksi"],data.deliveries.filter(d=>matches(d.destination,d.driver,d.vehicle,data.orders.find(o=>o.id===d.orderId)?.number||"")).map(d=><tr key={d.id}><td className="ref">{data.orders.find(o=>o.id===d.orderId)?.number||"—"}</td><td>{findPartner(data.orders.find(o=>o.id===d.orderId)?.partnerId||"")}</td><td><strong>{d.driver||"—"}</strong><small>{d.vehicle||"—"}</small></td><td>{d.destination}</td><td>{shortDate(d.date)}</td><td><select className="table-select" aria-label={"Status pengiriman "+d.id} value={d.status} disabled={writesLocked} onChange={e=>{const status=e.target.value as Delivery["status"];commitChange(v=>({...v,deliveries:v.deliveries.map(x=>x.id===d.id?{...x,status}:x)}),()=>toastIt("Status pengiriman diperbarui"));}}><option>Dijadwalkan</option><option>Dalam Perjalanan</option><option>Terkirim</option></select></td></tr>))}
     </>}
     {page==="Laporan"&&<>
       <div className="compact-stats"><div><span>Omzet Penjualan</span><strong>{money(sales)}</strong></div><div><span>Laba Kotor Estimasi</span><strong>{money(grossProfit)}</strong></div><div><span>Margin Kotor</span><strong>{sales?(grossProfit/sales*100).toFixed(1):"0"}%</strong></div></div>
@@ -330,7 +439,7 @@ export default function Home() {
           {expandedSetting==="cloud"&&<div id="opspiry-cloud-details" className="settings-details">
             <div className="setting-row"><span>Status Database</span>{cloudConfigured()?pill("Konfigurasi tersedia","good"):pill("Belum dikonfigurasi","warn")}</div>
             <div className="setting-row"><span>Status Penyimpanan</span><strong>{syncState}</strong></div>
-            {userId?<><div className="setting-row"><span>Akun</span><strong>{userEmail}</strong></div><button className="btn btn-outline" onClick={signOut}><LogOut size={16}/> Keluar dari cloud</button></>:cloudConfigured()?<form className="auth-form" onSubmit={e=>signIn(e,false)}><label>Email<input type="email" required value={authForm.email} onChange={e=>setAuthForm(f=>({...f,email:e.target.value}))} placeholder="nama@perusahaan.com"/></label><label>Password<input type="password" minLength={6} required value={authForm.password} onChange={e=>setAuthForm(f=>({...f,password:e.target.value}))} placeholder="Masukkan password"/></label><div className="auth-actions"><button className="btn btn-primary" disabled={cloudBusy} type="submit">Masuk Cloud</button><button className="btn btn-outline" disabled={cloudBusy} type="button" onClick={e=>signIn(e as unknown as React.FormEvent,true)}>Daftar Akun Baru</button></div></form>:null}
+            {userId?<><div className="setting-row"><span>Akun</span><strong>{userEmail}</strong></div><button className="btn btn-outline" disabled={saving||!!retrySave} onClick={()=>void retryWorkspace()}><RefreshCw size={16}/> Muat data terbaru</button><button className="btn btn-outline" disabled={saving||!!retrySave} onClick={signOut}><LogOut size={16}/> Keluar dari cloud</button></>:cloudConfigured()?<form className="auth-form" onSubmit={e=>signIn(e,false)}><label>Email<input type="email" required value={authForm.email} onChange={e=>setAuthForm(f=>({...f,email:e.target.value}))} placeholder="nama@perusahaan.com"/></label><label>Password<input type="password" minLength={6} required value={authForm.password} onChange={e=>setAuthForm(f=>({...f,password:e.target.value}))} placeholder="Masukkan password"/></label><div className="auth-actions"><button className="btn btn-primary" disabled={cloudBusy} type="submit">Masuk Cloud</button><button className="btn btn-outline" disabled={cloudBusy} type="button" onClick={e=>signIn(e as unknown as React.FormEvent,true)}>Daftar Akun Baru</button></div></form>:null}
             {cloudError&&<p className="form-error" role="alert">{cloudError}</p>}
           </div>}
         </section>
@@ -350,15 +459,27 @@ export default function Home() {
     </>}
     <footer className="app-footer"><span>© 2026 PT. BUKIT SION MEDIKAL · Sistem Operasional</span><span><span className="footer-live"/> {syncState}</span></footer>
    </main></div>
+   {userId&&(saving||retrySave||revision.current===null)&&<div className="sync-notice" role="status">
+    <span>{syncState}</span>
+    {!saving&&retrySave&&<button className="btn btn-outline" onClick={()=>void sendChange(retrySave)}>Coba simpan lagi</button>}
+    {!saving&&!retrySave&&revision.current===null&&<button className="btn btn-outline" onClick={()=>void retryWorkspace()}>Muat ulang data cloud</button>}
+   </div>}
    {toast&&<div className="toast" role="status"><CheckCircle2 size={19}/>{toast}<button onClick={()=>setToast("")} aria-label="Tutup pesan"><X size={16}/></button></div>}
-   {modal&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setModal(null);}}><section className="modal" role="dialog" aria-modal="true" aria-label={modalTitle[modal]}><header className="modal-header"><div><div className="section-kicker">OPERASIONAL PT. BUKIT SION MEDIKAL</div><h2>{modalTitle[modal]}</h2><p>Lengkapi data untuk menyimpan perubahan.</p></div><button className="icon-button" onClick={()=>setModal(null)} aria-label="Tutup formulir"><X size={21}/></button></header>
-     {(modal==="sale"||modal==="purchase")&&<form onSubmit={saveOrder} className="modal-form"><div className="form-grid"><label className="field full">{modal==="sale"?"Pelanggan":"Supplier"}<select required value={saleForm.partnerId} onChange={e=>setSaleForm(v=>({...v,partnerId:e.target.value}))}><option value="">Pilih {modal==="sale"?"pelanggan":"supplier"}</option>{data.partners.filter(p=>p.type===(modal==="sale"?"customer":"supplier")).map(p=><option key={p.id} value={p.id}>{p.code} · {p.name}</option>)}</select></label><label className="field full">Produk<select required value={saleForm.productId} onChange={e=>{const pid=e.target.value;const p=data.products.find(x=>x.id===pid);setSaleForm(v=>({...v,productId:pid,price:p?String(modal==="sale"?p.price:p.cost):""}));}}><option value="">Pilih produk</option>{data.products.map(p=><option key={p.id} value={p.id}>{p.code} · {p.name} (stok {productStock(data,p.id)})</option>)}</select></label><label className="field">Kuantitas<input required type="number" min="1" step="1" value={saleForm.qty} onChange={e=>setSaleForm(v=>({...v,qty:e.target.value}))}/></label><label className="field">Harga satuan (Rp)<input required type="number" min="1" step="1" value={saleForm.price} onChange={e=>setSaleForm(v=>({...v,price:e.target.value}))}/></label><label className="field">Pembayaran awal (Rp)<input required type="number" min="0" step="1" value={saleForm.paid} onChange={e=>setSaleForm(v=>({...v,paid:e.target.value}))}/></label><label className="field">Jatuh tempo<input required type="date" value={saleForm.due} onChange={e=>setSaleForm(v=>({...v,due:e.target.value}))}/></label><label className="field full">Keterangan<textarea rows={2} placeholder="Opsional" value={saleForm.note} onChange={e=>setSaleForm(v=>({...v,note:e.target.value}))}/></label></div><div className="form-total"><span>Total transaksi</span><strong>{money(entryTotal)}</strong><span>Sisa {modal==="sale"?"piutang":"hutang"}</span><strong>{money(entryBalance)}</strong></div><div className="modal-actions"><button type="button" className="btn btn-outline" onClick={()=>setModal(null)}>Batal</button><button type="submit" className="btn btn-primary"><Check size={17}/> Simpan Transaksi</button></div></form>}
-     {modal==="product"&&<form className="modal-form" onSubmit={saveProduct}><div className="form-grid"><label className="field full">Nama produk<input required value={productForm.name} onChange={e=>setProductForm(v=>({...v,name:e.target.value}))} placeholder="Contoh: Beras Premium 5kg"/></label><label className="field">Kategori<input value={productForm.category} onChange={e=>setProductForm(v=>({...v,category:e.target.value}))}/></label><label className="field">Satuan<input value={productForm.unit} onChange={e=>setProductForm(v=>({...v,unit:e.target.value}))}/></label><label className="field">Harga jual (Rp)<input required type="number" min="0" value={productForm.price} onChange={e=>setProductForm(v=>({...v,price:e.target.value}))}/></label><label className="field">Harga beli (Rp)<input required type="number" min="0" value={productForm.cost} onChange={e=>setProductForm(v=>({...v,cost:e.target.value}))}/></label><label className="field">Stok awal<input required type="number" min="0" step="1" value={productForm.opening} onChange={e=>setProductForm(v=>({...v,opening:e.target.value}))}/></label><label className="field">Stok minimum<input required type="number" min="0" step="1" value={productForm.min} onChange={e=>setProductForm(v=>({...v,min:e.target.value}))}/></label></div><div className="modal-actions"><button type="button" className="btn btn-outline" onClick={()=>setModal(null)}>Batal</button><button className="btn btn-primary" type="submit">Simpan Produk</button></div></form>}
-     {(modal==="customer"||modal==="supplier")&&<form className="modal-form" onSubmit={savePartner}><div className="form-grid"><label className="field full">Nama {modal==="customer"?"pelanggan":"supplier"}<input required value={partnerForm.name} onChange={e=>setPartnerForm(v=>({...v,name:e.target.value}))}/></label><label className="field">Nomor kontak<input value={partnerForm.phone} onChange={e=>setPartnerForm(v=>({...v,phone:e.target.value}))}/></label><label className="field">Kota<input value={partnerForm.city} onChange={e=>setPartnerForm(v=>({...v,city:e.target.value}))}/></label></div><div className="modal-actions"><button className="btn btn-outline" type="button" onClick={()=>setModal(null)}>Batal</button><button className="btn btn-primary" type="submit">Simpan Mitra</button></div></form>}
-     {modal==="delivery"&&<form className="modal-form" onSubmit={saveDelivery}><div className="form-grid"><label className="field full">Faktur penjualan<select required value={deliveryForm.orderId} onChange={e=>{const o=data.orders.find(o=>o.id===e.target.value);setDeliveryForm(v=>({...v,orderId:e.target.value,destination:o?data.partners.find(p=>p.id===o.partnerId)?.city||"":" "}));}}><option value="">Pilih faktur</option>{ordersSale.map(o=><option key={o.id} value={o.id}>{o.number} · {findPartner(o.partnerId)}</option>)}</select></label><label className="field">Pengemudi<input value={deliveryForm.driver} onChange={e=>setDeliveryForm(v=>({...v,driver:e.target.value}))}/></label><label className="field">No. kendaraan<input value={deliveryForm.vehicle} onChange={e=>setDeliveryForm(v=>({...v,vehicle:e.target.value}))}/></label><label className="field">Kota tujuan<input required value={deliveryForm.destination} onChange={e=>setDeliveryForm(v=>({...v,destination:e.target.value}))}/></label><label className="field">Tanggal kirim<input required type="date" value={deliveryForm.date} onChange={e=>setDeliveryForm(v=>({...v,date:e.target.value}))}/></label></div><div className="modal-actions"><button type="button" className="btn btn-outline" onClick={()=>setModal(null)}>Batal</button><button type="submit" className="btn btn-primary">Buat Surat Jalan</button></div></form>}
-     {modal==="adjustment"&&<form className="modal-form" onSubmit={saveAdjustment}><div className="form-grid"><label className="field full">Produk<select required value={adjustForm.productId} onChange={e=>setAdjustForm(v=>({...v,productId:e.target.value}))}><option value="">Pilih produk</option>{data.products.map(p=><option value={p.id} key={p.id}>{p.name} · Stok {productStock(data,p.id)}</option>)}</select></label><label className="field full">Perubahan kuantitas (minus untuk berkurang)<input type="number" required step="1" value={adjustForm.qty} placeholder="Contoh: -5 atau 10" onChange={e=>setAdjustForm(v=>({...v,qty:e.target.value}))}/></label><label className="field full">Alasan / Keterangan<textarea rows={3} value={adjustForm.note} onChange={e=>setAdjustForm(v=>({...v,note:e.target.value}))} placeholder="Hasil stock opname, rusak, dll."/></label></div><div className="modal-actions"><button className="btn btn-outline" type="button" onClick={()=>setModal(null)}>Batal</button><button className="btn btn-primary" type="submit">Simpan Penyesuaian</button></div></form>}
+   {modal&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget&&!writesLocked)setModal(null);}}><section className="modal" role="dialog" aria-modal="true" aria-label={modalTitle[modal]}><header className="modal-header"><div><div className="section-kicker">OPERASIONAL PT. BUKIT SION MEDIKAL</div><h2>{modalTitle[modal]}</h2><p>Lengkapi data untuk menyimpan perubahan.</p></div><button className="icon-button" disabled={writesLocked} onClick={()=>setModal(null)} aria-label="Tutup formulir"><X size={21}/></button></header>
+     {(modal==="sale"||modal==="purchase")&&<form onSubmit={saveOrder} className="modal-form"><div className="form-grid"><label className="field full">{modal==="sale"?"Pelanggan":"Supplier"}<select required value={saleForm.partnerId} onChange={e=>setSaleForm(v=>({...v,partnerId:e.target.value}))}><option value="">Pilih {modal==="sale"?"pelanggan":"supplier"}</option>{data.partners.filter(p=>p.type===(modal==="sale"?"customer":"supplier")).map(p=><option key={p.id} value={p.id}>{p.code} · {p.name}</option>)}</select></label><label className="field full">Produk<select required value={saleForm.productId} onChange={e=>{const pid=e.target.value;const p=data.products.find(x=>x.id===pid);setSaleForm(v=>({...v,productId:pid,price:p?String(modal==="sale"?p.price:p.cost):""}));}}><option value="">Pilih produk</option>{data.products.map(p=><option key={p.id} value={p.id}>{p.code} · {p.name} (stok {productStock(data,p.id)})</option>)}</select></label><label className="field">Kuantitas<input required type="number" min="1" step="1" value={saleForm.qty} onChange={e=>setSaleForm(v=>({...v,qty:e.target.value}))}/></label><label className="field">Harga satuan (Rp)<input required type="number" min="1" step="1" value={saleForm.price} onChange={e=>setSaleForm(v=>({...v,price:e.target.value}))}/></label><label className="field">Pembayaran awal (Rp)<input required type="number" min="0" step="1" value={saleForm.paid} onChange={e=>setSaleForm(v=>({...v,paid:e.target.value}))}/></label><label className="field">Jatuh tempo<input required type="date" value={saleForm.due} onChange={e=>setSaleForm(v=>({...v,due:e.target.value}))}/></label><label className="field full">Keterangan<textarea rows={2} placeholder="Opsional" value={saleForm.note} onChange={e=>setSaleForm(v=>({...v,note:e.target.value}))}/></label></div><div className="form-total"><span>Total transaksi</span><strong>{money(entryTotal)}</strong><span>Sisa {modal==="sale"?"piutang":"hutang"}</span><strong>{money(entryBalance)}</strong></div><div className="modal-actions"><button type="button" className="btn btn-outline" disabled={writesLocked} onClick={()=>setModal(null)}>Batal</button><button type="submit" disabled={writesLocked} className="btn btn-primary"><Check size={17}/> Simpan Transaksi</button></div></form>}
+     {modal==="product"&&<form className="modal-form" onSubmit={saveProduct}><div className="form-grid"><label className="field full">Nama produk<input required value={productForm.name} onChange={e=>setProductForm(v=>({...v,name:e.target.value}))} placeholder="Contoh: Beras Premium 5kg"/></label><label className="field">Kategori<input value={productForm.category} onChange={e=>setProductForm(v=>({...v,category:e.target.value}))}/></label><label className="field">Satuan<input value={productForm.unit} onChange={e=>setProductForm(v=>({...v,unit:e.target.value}))}/></label><label className="field">Harga jual (Rp)<input required type="number" min="0" value={productForm.price} onChange={e=>setProductForm(v=>({...v,price:e.target.value}))}/></label><label className="field">Harga beli (Rp)<input required type="number" min="0" value={productForm.cost} onChange={e=>setProductForm(v=>({...v,cost:e.target.value}))}/></label><label className="field">Stok awal<input required type="number" min="0" step="1" value={productForm.opening} onChange={e=>setProductForm(v=>({...v,opening:e.target.value}))}/></label><label className="field">Stok minimum<input required type="number" min="0" step="1" value={productForm.min} onChange={e=>setProductForm(v=>({...v,min:e.target.value}))}/></label></div><div className="modal-actions"><button type="button" className="btn btn-outline" disabled={writesLocked} onClick={()=>setModal(null)}>Batal</button><button className="btn btn-primary" type="submit" disabled={writesLocked}>Simpan Produk</button></div></form>}
+     {(modal==="customer"||modal==="supplier")&&<form className="modal-form" onSubmit={savePartner}><div className="form-grid"><label className="field full">Nama {modal==="customer"?"pelanggan":"supplier"}<input required value={partnerForm.name} onChange={e=>setPartnerForm(v=>({...v,name:e.target.value}))}/></label><label className="field">Nomor kontak<input value={partnerForm.phone} onChange={e=>setPartnerForm(v=>({...v,phone:e.target.value}))}/></label><label className="field">Kota<input value={partnerForm.city} onChange={e=>setPartnerForm(v=>({...v,city:e.target.value}))}/></label></div><div className="modal-actions"><button className="btn btn-outline" type="button" disabled={writesLocked} onClick={()=>setModal(null)}>Batal</button><button className="btn btn-primary" type="submit" disabled={writesLocked}>Simpan Mitra</button></div></form>}
+     {modal==="delivery"&&<form className="modal-form" onSubmit={saveDelivery}><div className="form-grid"><label className="field full">Faktur penjualan<select required value={deliveryForm.orderId} onChange={e=>{const o=data.orders.find(o=>o.id===e.target.value);setDeliveryForm(v=>({...v,orderId:e.target.value,destination:o?data.partners.find(p=>p.id===o.partnerId)?.city||"":" "}));}}><option value="">Pilih faktur</option>{ordersSale.map(o=><option key={o.id} value={o.id}>{o.number} · {findPartner(o.partnerId)}</option>)}</select></label><label className="field">Pengemudi<input value={deliveryForm.driver} onChange={e=>setDeliveryForm(v=>({...v,driver:e.target.value}))}/></label><label className="field">No. kendaraan<input value={deliveryForm.vehicle} onChange={e=>setDeliveryForm(v=>({...v,vehicle:e.target.value}))}/></label><label className="field">Kota tujuan<input required value={deliveryForm.destination} onChange={e=>setDeliveryForm(v=>({...v,destination:e.target.value}))}/></label><label className="field">Tanggal kirim<input required type="date" value={deliveryForm.date} onChange={e=>setDeliveryForm(v=>({...v,date:e.target.value}))}/></label></div><div className="modal-actions"><button type="button" className="btn btn-outline" disabled={writesLocked} onClick={()=>setModal(null)}>Batal</button><button type="submit" disabled={writesLocked} className="btn btn-primary">Buat Surat Jalan</button></div></form>}
+     {modal==="receipt"&&<form className="modal-form" onSubmit={saveReceipt}>
+      <p>{receiptOrder?.number} · {receiptOrder ? findProduct(receiptOrder.productId) : ""}</p>
+      <p>Sisa belum diterima: {num(receiptRemaining)}</p>
+      <label className="field">Jumlah diterima<input required type="number" min="1" max={receiptRemaining} step="1" value={receiptQuantity} onChange={event=>setReceiptQuantity(event.target.value)}/></label>
+      <div className="modal-actions"><button type="button" className="btn btn-outline" disabled={writesLocked} onClick={()=>setModal(null)}>Batal</button>
+      <button type="submit" className="btn btn-primary" disabled={writesLocked||receiptRemaining<1}>Simpan penerimaan</button></div>
+     </form>}
+     {modal==="adjustment"&&<form className="modal-form" onSubmit={saveAdjustment}><div className="form-grid"><label className="field full">Produk<select required value={adjustForm.productId} onChange={e=>setAdjustForm(v=>({...v,productId:e.target.value}))}><option value="">Pilih produk</option>{data.products.map(p=><option value={p.id} key={p.id}>{p.name} · Stok {productStock(data,p.id)}</option>)}</select></label><label className="field full">Perubahan kuantitas (minus untuk berkurang)<input type="number" required step="1" value={adjustForm.qty} placeholder="Contoh: -5 atau 10" onChange={e=>setAdjustForm(v=>({...v,qty:e.target.value}))}/></label><label className="field full">Alasan / Keterangan<textarea rows={3} value={adjustForm.note} onChange={e=>setAdjustForm(v=>({...v,note:e.target.value}))} placeholder="Hasil stock opname, rusak, dll."/></label></div><div className="modal-actions"><button className="btn btn-outline" type="button" disabled={writesLocked} onClick={()=>setModal(null)}>Batal</button><button className="btn btn-primary" type="submit" disabled={writesLocked}>Simpan Penyesuaian</button></div></form>}
    </section></div>}
-   {payOrder&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setPayOrder(null);}}><section className="modal modal-small" role="dialog" aria-modal="true" aria-label="Catat pembayaran"><header className="modal-header"><div><div className="section-kicker">PELUNASAN</div><h2>Catat Pembayaran</h2><p>{data.orders.find(o=>o.id===payOrder)?.number}</p></div><button className="icon-button" aria-label="Tutup" onClick={()=>setPayOrder(null)}><X size={21}/></button></header><form className="modal-form" onSubmit={settle}><label className="field">Nominal pembayaran (Rp)<input type="number" min="1" step="1" required value={payAmount} onChange={e=>setPayAmount(e.target.value)}/></label><label className="field">Metode pembayaran<select value={payMethod} onChange={e=>setPayMethod(e.target.value)}><option>Transfer Bank</option><option>Tunai</option><option>Giro</option><option>Lainnya</option></select></label><label className="field">Referensi / catatan pembayaran<input value={payReference} onChange={e=>setPayReference(e.target.value)} placeholder="No. bukti / nama bank (opsional)"/></label><p className="settings-note">Maksimal sisa tagihan: {money(remaining(data.orders.find(o=>o.id===payOrder)!))}</p><div className="modal-actions"><button type="button" className="btn btn-outline" onClick={()=>setPayOrder(null)}>Batal</button><button className="btn btn-primary" type="submit">Simpan Pelunasan</button></div></form></section></div>}
+   {payOrder&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget&&!writesLocked)setPayOrder(null);}}><section className="modal modal-small" role="dialog" aria-modal="true" aria-label="Catat pembayaran"><header className="modal-header"><div><div className="section-kicker">PELUNASAN</div><h2>Catat Pembayaran</h2><p>{data.orders.find(o=>o.id===payOrder)?.number}</p></div><button className="icon-button" aria-label="Tutup" disabled={writesLocked} onClick={()=>setPayOrder(null)}><X size={21}/></button></header><form className="modal-form" onSubmit={settle}><label className="field">Nominal pembayaran (Rp)<input type="number" min="1" step="1" required value={payAmount} onChange={e=>setPayAmount(e.target.value)}/></label><label className="field">Metode pembayaran<select value={payMethod} onChange={e=>setPayMethod(e.target.value)}><option>Transfer Bank</option><option>Tunai</option><option>Giro</option><option>Lainnya</option></select></label><label className="field">Referensi / catatan pembayaran<input value={payReference} onChange={e=>setPayReference(e.target.value)} placeholder="No. bukti / nama bank (opsional)"/></label><p className="settings-note">Maksimal sisa tagihan: {money(remaining(data.orders.find(o=>o.id===payOrder)!))}</p><div className="modal-actions"><button type="button" className="btn btn-outline" disabled={writesLocked} onClick={()=>setPayOrder(null)}>Batal</button><button className="btn btn-primary" type="submit" disabled={writesLocked}>Simpan Pelunasan</button></div></form></section></div>}
   <InvoicePrint order={data.orders.find(o=>o.id===printOrder)} partner={data.partners.find(p=>p.id===data.orders.find(o=>o.id===printOrder)?.partnerId)} product={data.products.find(p=>p.id===data.orders.find(o=>o.id===printOrder)?.productId)} isDemo={!userId}/>
   </div>;
 }
