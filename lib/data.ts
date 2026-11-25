@@ -1,11 +1,12 @@
 export type Partner = { id: string; code: string; name: string; phone: string; city: string; type: "customer" | "supplier" };
 export type Product = { id: string; code: string; name: string; category: string; unit: string; price: number; cost: number; opening: number; min: number };
-export type Order = { id: string; number: string; kind: "sale" | "purchase"; date: string; partnerId: string; productId: string; qty: number; price: number; paid: number; due: string; note: string };
+export type Order = { id: string; number: string; kind: "sale" | "purchase"; date: string; partnerId: string; productId: string; qty: number; price: number; paid: number; due: string; note: string; requiresReceipt?: true };
 export type Delivery = { id: string; orderId: string; driver: string; vehicle: string; destination: string; status: "Dijadwalkan" | "Dalam Perjalanan" | "Terkirim"; date: string };
 export type Adjustment = { id: string; productId: string; qty: number; note: string; date: string };
 export type Payment = { id: string; orderId: string; date: string; amount: number; method: string; reference: string };
-export type AppData = { products: Product[]; partners: Partner[]; orders: Order[]; deliveries: Delivery[]; adjustments: Adjustment[]; payments?: Payment[] };
-export const emptyData: AppData = { products: [], partners: [], orders: [], deliveries: [], adjustments: [], payments: [] };
+export type Receipt = { id: string; orderId: string; qty: number; date: string };
+export type AppData = { products: Product[]; partners: Partner[]; orders: Order[]; deliveries: Delivery[]; adjustments: Adjustment[]; payments?: Payment[]; receipts?: Receipt[] };
+export const emptyData: AppData = { products: [], partners: [], orders: [], deliveries: [], adjustments: [], payments: [], receipts: [] };
 export const id = () => typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2);
 const localDate = (date: Date) => [date.getFullYear(),String(date.getMonth()+1).padStart(2,"0"),String(date.getDate()).padStart(2,"0")].join("-");
 export const today = () => localDate(new Date());
@@ -15,10 +16,35 @@ export const num = (value: number) => value.toLocaleString("id-ID");
 export const shortDate = (value: string) => new Date(value + "T12:00:00").toLocaleDateString("id-ID", {day:"2-digit",month:"short",year:"numeric"});
 export const amount = (order: Order) => order.qty * order.price;
 export const remaining = (order: Order) => Math.max(0, amount(order) - order.paid);
-export const productStock = (d: AppData, pid: string) => {
- const product = d.products.find(p => p.id === pid);
- return (product?.opening || 0) + d.orders.reduce((n, o) => n + (o.productId === pid ? (o.kind === "purchase" ? o.qty : -o.qty) : 0),0) + d.adjustments.reduce((n,a)=>n+(a.productId === pid?a.qty:0),0);
-};
+// Purchases written before receiving was introduced already contributed to stock.
+export function receivedQty(data: AppData, order: Order) {
+ if (order.kind !== "purchase") return 0;
+ if (!order.requiresReceipt) return order.qty;
+ return (data.receipts ?? []).reduce((total, receipt) => total + (receipt.orderId === order.id ? receipt.qty : 0), 0);
+}
+
+export function stockMovements(data: AppData) {
+ const purchases = new Map(data.orders.filter(order => order.kind === "purchase").map(order => [order.id, order]));
+ return [
+  ...data.orders.filter(order => !order.requiresReceipt).map(order => ({
+   id: order.id, date: order.date, product: order.productId,
+   kind: order.kind === "purchase" ? "Pembelian lama" : "Barang Keluar",
+   qty: order.kind === "purchase" ? order.qty : -order.qty, note: order.number,
+  })),
+  ...(data.receipts ?? []).flatMap(receipt => {
+   const order = purchases.get(receipt.orderId);
+   return order ? [{id: receipt.id, date: receipt.date, product: order.productId,
+    kind: "Penerimaan Barang", qty: receipt.qty, note: order.number}] : [];
+  }),
+  ...data.adjustments.map(adjustment => ({...adjustment, product: adjustment.productId, kind: "Penyesuaian"})),
+ ];
+}
+
+export const productStock = (data: AppData, productId: string) =>
+ (data.products.find(product => product.id === productId)?.opening ?? 0) +
+ data.orders.reduce((total, order) => total + (order.productId === productId ?
+  (order.kind === "purchase" ? receivedQty(data, order) : -order.qty) : 0), 0) +
+ data.adjustments.reduce((total, adjustment) => total + (adjustment.productId === productId ? adjustment.qty : 0), 0);
 export function seedData(): AppData {
  const day = today();
  const products: Product[] = [
